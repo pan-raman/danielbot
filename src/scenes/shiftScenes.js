@@ -142,46 +142,47 @@ createShiftScene.command('cancel', async (ctx) => {
 // ── Edit Shift Scene ─────────────────────────────────────────────────────────
 
 const EDIT_FIELDS = {
-  date:       { label: 'Date',        validate: parseDate,  hint: '(YYYY-MM-DD or DD.MM.YYYY)' },
-  location:   { label: 'Location',    validate: v => v,     hint: '' },
-  dress_code: { label: 'Dress Code',  validate: v => v,     hint: '' },
-  start_time: { label: 'Start Time',  validate: parseTime,  hint: '(HH:MM)' },
-  end_time:   { label: 'End Time',    validate: parseTime,  hint: '(HH:MM)' },
-  required:   { label: 'Required',    validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '(number)' },
+  date:       { label: 'Дата',          validate: parseDate,  hint: '(ДД.ММ)' },
+  location:   { label: 'Место',         validate: v => v,     hint: '' },
+  dress_code: { label: 'Дресс-код',     validate: v => v,     hint: '' },
+  start_time: { label: 'Начало',        validate: parseTime,  hint: '(ЧЧ:ММ)' },
+  end_time:   { label: 'Конец',         validate: parseTime,  hint: '(ЧЧ:ММ)' },
+  required:   { label: 'Кол-во мест',   validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '' },
 };
+
+function editFieldsKeyboard() {
+  return {
+    inline_keyboard: Object.entries(EDIT_FIELDS).map(([key, { label }]) => (
+      [{ text: label, callback_data: `editfield:${key}` }]
+    )).concat([[{ text: '✅ Завершить редактирование', callback_data: 'editfield:done' }]]),
+  };
+}
 
 const editShiftScene = new Scenes.WizardScene(
   'edit_shift',
 
-  // Step 0 – choose field
+  // Step 0 – show field picker
   async (ctx) => {
     const shiftId = ctx.scene.state.shiftId;
     const shift   = getShift(shiftId);
-    if (!shift) { await ctx.reply('Shift not found.'); return ctx.scene.leave(); }
-
-    ctx.scene.state.shift = shift;
-
-    const keyboard = {
-      inline_keyboard: Object.entries(EDIT_FIELDS).map(([key, { label }]) => ([
-        { text: label, callback_data: `editfield:${key}` }
-      ])).concat([[{ text: '✅ Done', callback_data: 'editfield:done' }]]),
-    };
+    if (!shift) { await ctx.reply('Смена не найдена.'); return ctx.scene.leave(); }
 
     await ctx.replyWithHTML(
-      `✏️ <b>Edit Shift #${shiftId}</b>\n\n${shiftText(shift)}\n\nWhich field to edit?`,
-      { reply_markup: keyboard }
+      `✏️ <b>Редактировать смену</b>\n\n${shiftText(shift)}\n\nКакое поле изменить?`,
+      { reply_markup: editFieldsKeyboard() }
     );
     return ctx.wizard.next();
   },
 
-  // Step 1 – receive field choice
+  // Step 1 – wait for field choice
   async (ctx) => {
     if (!ctx.callbackQuery?.data) return;
     const data = ctx.callbackQuery.data;
     await ctx.answerCbQuery();
 
     if (data === 'editfield:done') {
-      await ctx.reply('✅ Edit finished.');
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+      await ctx.reply('✅ Редактирование завершено.', { reply_markup: BACK_KEYBOARD });
       return ctx.scene.leave();
     }
 
@@ -190,11 +191,11 @@ const editShiftScene = new Scenes.WizardScene(
 
     ctx.scene.state.editField = field;
     const { label, hint } = EDIT_FIELDS[field];
-    await ctx.replyWithHTML(`Enter new <b>${label}</b> ${hint}:`);
+    await ctx.replyWithHTML(`Введи новое значение для <b>${label}</b> ${hint}:`);
     return ctx.wizard.next();
   },
 
-  // Step 2 – receive new value
+  // Step 2 – receive new value, save, go back to step 0
   async (ctx) => {
     if (!ctx.message?.text) return;
     const raw   = ctx.message.text.trim();
@@ -203,14 +204,14 @@ const editShiftScene = new Scenes.WizardScene(
     const value = validate(raw);
 
     if (value === null || value === undefined) {
-      return ctx.reply('⚠️ Invalid value. Try again.');
+      return ctx.reply('⚠️ Неверное значение. Попробуй ещё раз.');
     }
 
     const { shiftId } = ctx.scene.state;
     updateShift(shiftId, { [field]: value });
     const shift = getShift(shiftId);
 
-    // Re-post updated message if pinned
+    // Update the group post
     if (shift.chat_id && shift.message_id) {
       try {
         await ctx.telegram.editMessageText(
@@ -221,8 +222,12 @@ const editShiftScene = new Scenes.WizardScene(
       } catch {}
     }
 
-    await ctx.replyWithHTML(`✅ <b>${EDIT_FIELDS[field].label}</b> обновлено.\n\n${shiftText(shift)}`, { reply_markup: BACK_KEYBOARD });
-    return ctx.scene.leave();
+    await ctx.replyWithHTML(
+      `✅ <b>${EDIT_FIELDS[field].label}</b> обновлено.\n\n${shiftText(shift)}\n\nКакое поле изменить ещё?`,
+      { reply_markup: editFieldsKeyboard() }
+    );
+    // Go back to step 1 (field picker)
+    ctx.wizard.selectStep(1);
   }
 );
 
