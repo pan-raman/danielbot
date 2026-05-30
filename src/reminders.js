@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { getAllShifts, getParticipants } = require('../db/queries');
+const { getAllShifts, getParticipants } = require('./db/queries');
 
 function padTime(t) {
   return t.length === 4 ? '0' + t : t;
