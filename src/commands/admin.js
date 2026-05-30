@@ -135,8 +135,7 @@ function registerAdminCommands(bot) {
   bot.action(/^ap:edit:(\d+)$/, adminOnly, async (ctx) => {
     const id = parseInt(ctx.match[1], 10);
     await ctx.answerCbQuery();
-    ctx.scene.state = { shiftId: id };
-    await ctx.scene.enter('edit_shift');
+    await ctx.scene.enter('edit_shift', { shiftId: id });
   });
 
   // ── Delete ───────────────────────────────────────────────────────────────
