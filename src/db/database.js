@@ -45,6 +45,11 @@ function migrate(db) {
       FOREIGN KEY (created_by) REFERENCES users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS shift_participants (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       shift_id   INTEGER NOT NULL,

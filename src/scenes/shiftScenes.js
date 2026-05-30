@@ -1,5 +1,5 @@
 const { Scenes } = require('telegraf');
-const { createShift, updateShift, getShift, deleteShift, setShiftMessage, getAllShifts, getParticipants } = require('../db/queries');
+const { createShift, updateShift, getShift, deleteShift, setShiftMessage, getAllShifts, getParticipants, getSetting } = require('../db/queries');
 const { shiftText, shiftKeyboard, userName } = require('../helpers/format');
 
 // ── Step definitions ────────────────────────────────────────────────────────
@@ -85,13 +85,23 @@ const createShiftScene = new Scenes.WizardScene(
     const shiftId = createShift({ ...data, created_by: ctx.from.id });
     const shift   = getShift(shiftId);
 
-    const sent = await ctx.replyWithHTML(shiftText(shift), {
-      reply_markup: shiftKeyboard(shiftId),
-    });
+    const targetChatId = getSetting('target_chat_id');
+
+    let sent;
+    if (targetChatId) {
+      sent = await ctx.telegram.sendMessage(targetChatId, shiftText(shift), {
+        parse_mode: 'HTML',
+        reply_markup: shiftKeyboard(shiftId),
+      });
+      await ctx.reply(`✅ Shift #${shiftId} posted to the group!`);
+    } else {
+      sent = await ctx.replyWithHTML(shiftText(shift), {
+        reply_markup: shiftKeyboard(shiftId),
+      });
+      await ctx.reply(`✅ Shift #${shiftId} created!\n\n⚠️ No group linked yet. Use /setchat in your group to link it.`);
+    }
 
     setShiftMessage(shiftId, sent.chat.id, sent.message_id);
-
-    await ctx.reply(`✅ Shift #${shiftId} created and posted!`);
     return ctx.scene.leave();
   }
 );

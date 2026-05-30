@@ -143,9 +143,23 @@ function getShiftsStartingAt(targetDatetime) {
   `).all(date, time);
 }
 
+// ── Settings ────────────────────────────────────────────────────────────────
+
+function getSetting(key) {
+  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row ? row.value : null;
+}
+
+function setSetting(key, value) {
+  getDb().prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run(key, String(value));
+}
+
 module.exports = {
   upsertUser, getUser, isAdmin, isBanned, setBanned, setAdmin, getAllUsers,
   createShift, getShift, getAllShifts, updateShift, deleteShift, setShiftMessage,
   joinShift, leaveShift, getParticipants, isParticipant,
   getShiftsStartingAt,
+  getSetting, setSetting,
 };

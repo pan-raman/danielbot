@@ -2,6 +2,7 @@ const { Markup } = require('telegraf');
 const {
   getAllShifts, getShift, deleteShift, getParticipants,
   setShiftMessage, getAllUsers, setBanned, setAdmin, isBanned,
+  getSetting, setSetting,
 } = require('../db/queries');
 const { shiftText, shiftKeyboard, userName } = require('../helpers/format');
 const { adminOnly } = require('../middleware/guards');
@@ -146,11 +147,21 @@ function registerAdminCommands(bot) {
     await ctx.reply(`User ${uid} demoted.`);
   });
 
+  // /setchat – link current group as the target for shift posts
+  bot.command('setchat', adminOnly, async (ctx) => {
+    if (ctx.chat.type === 'private') {
+      return ctx.reply('⚠️ Run this command inside the group you want to link.');
+    }
+    setSetting('target_chat_id', ctx.chat.id);
+    await ctx.reply(`✅ This group is now linked. All new shifts will be posted here.\n\nYou can now create shifts in private with me via /newshift.`);
+  });
+
   // /adminhelp
   bot.command('adminhelp', adminOnly, (ctx) => {
     ctx.replyWithHTML(
       '<b>Admin Commands</b>\n\n' +
-      '/newshift – Create a new shift (interactive)\n' +
+      '/newshift – Create a new shift (use in private chat!)\n' +
+      '/setchat – Link current group for shift posts (run in group)\n' +
       '/shifts – List all shifts\n' +
       '/shift_&lt;id&gt; – Manage a specific shift\n' +
       '/users – List all users\n' +
