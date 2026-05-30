@@ -13,7 +13,9 @@ const LISTA_KEYBOARD = {
   ],
 };
 
-// ── Step definitions ────────────────────────────────────────────────────────
+const ZBIORKA_KEYBOARD = {
+  inline_keyboard: [[{ text: 'Pomiń Zbiórka', callback_data: 'zbiorka:skip' }]],
+};
 // Steps that use plain text input (wizard-driven)
 // lista and zbiorka are handled separately (inline button + text)
 
@@ -114,14 +116,20 @@ const createShiftScene = new Scenes.WizardScene(
     await ctx.answerCbQuery();
     ctx.scene.state.data.lista = lista;
 
-    await ctx.replyWithHTML('📍 Podaj <b>Zbiórka</b> (miejsce zbiórki):');
+    await ctx.replyWithHTML('📍 Podaj <b>Zbiórka</b> (miejsce zbiórki) lub pomiń:', { reply_markup: ZBIORKA_KEYBOARD });
     return ctx.wizard.next();
   },
 
-  // Step 8 – receive zbiorka, save and post
+  // Step 8 – receive zbiorka (text or skip), save and post
   async (ctx) => {
-    if (!ctx.message?.text) return;
-    ctx.scene.state.data.zbiorka = ctx.message.text.trim();
+    if (ctx.callbackQuery?.data === 'zbiorka:skip') {
+      await ctx.answerCbQuery();
+      ctx.scene.state.data.zbiorka = null;
+    } else if (ctx.message?.text) {
+      ctx.scene.state.data.zbiorka = ctx.message.text.trim();
+    } else {
+      return;
+    }
 
     const { data } = ctx.scene.state;
     const shiftId = createShift({ ...data, created_by: ctx.from.id });
@@ -161,7 +169,7 @@ const EDIT_FIELDS = {
   end_time:   { label: 'Koniec',         validate: parseTime,  hint: '(GG:MM)', type: 'text' },
   required:   { label: 'Liczba miejsc',  validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '', type: 'text' },
   lista:      { label: 'Lista do wypisu',validate: v => v,     hint: '',         type: 'button' },
-  zbiorka:    { label: 'Zbiórka',        validate: v => v,     hint: '',         type: 'text' },
+  zbiorka:    { label: 'Zbiórka',        validate: v => v || null, hint: '',         type: 'text' },
 };
 
 function editFieldsKeyboard() {
@@ -207,6 +215,8 @@ const editShiftScene = new Scenes.WizardScene(
 
     if (field === 'lista') {
       await ctx.replyWithHTML('📋 Wybierz <b>Lista do wypisu</b>:', { reply_markup: LISTA_KEYBOARD });
+    } else if (field === 'zbiorka') {
+      await ctx.replyWithHTML('📍 Podaj <b>Zbiórka</b> lub usuń:', { reply_markup: ZBIORKA_KEYBOARD });
     } else {
       const { label, hint } = EDIT_FIELDS[field];
       await ctx.replyWithHTML(`Podaj nową wartość dla <b>${label}</b> ${hint}:`);
@@ -223,6 +233,9 @@ const editShiftScene = new Scenes.WizardScene(
       if (!ctx.callbackQuery?.data?.startsWith('lista:')) return;
       raw = ctx.callbackQuery.data.replace('lista:', '');
       await ctx.answerCbQuery();
+    } else if (field === 'zbiorka' && ctx.callbackQuery?.data === 'zbiorka:skip') {
+      await ctx.answerCbQuery();
+      raw = '';
     } else {
       if (!ctx.message?.text) return;
       raw = ctx.message.text.trim();

@@ -55,9 +55,9 @@ function getAllUsers() {
 function createShift(data) {
   const db = getDb();
   const result = db.prepare(`
-    INSERT INTO shifts (date, location, dress_code, start_time, end_time, required, created_by)
-    VALUES (@date, @location, @dress_code, @start_time, @end_time, @required, @created_by)
-  `).run(data);
+    INSERT INTO shifts (date, location, dress_code, start_time, end_time, required, lista, zbiorka, created_by)
+    VALUES (@date, @location, @dress_code, @start_time, @end_time, @required, @lista, @zbiorka, @created_by)
+  `).run({ lista: null, zbiorka: null, ...data });
   return result.lastInsertRowid;
 }
 
