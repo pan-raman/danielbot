@@ -38,6 +38,8 @@ function migrate(db) {
       start_time    TEXT NOT NULL,
       end_time      TEXT NOT NULL,
       required      INTEGER NOT NULL DEFAULT 1,
+      lista         TEXT,
+      zbiorka       TEXT,
       chat_id       INTEGER,
       message_id    INTEGER,
       created_by    INTEGER NOT NULL,
@@ -60,6 +62,11 @@ function migrate(db) {
       FOREIGN KEY (user_id)  REFERENCES users(id)
     );
   `);
+
+  // Migrations for existing databases
+  const cols = db.pragma('table_info(shifts)').map(c => c.name);
+  if (!cols.includes('lista'))   db.exec('ALTER TABLE shifts ADD COLUMN lista TEXT');
+  if (!cols.includes('zbiorka')) db.exec('ALTER TABLE shifts ADD COLUMN zbiorka TEXT');
 }
 
 module.exports = { getDb };

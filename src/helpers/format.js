@@ -34,11 +34,13 @@ function shiftText(shift) {
     `📍 <b>${shift.location}</b>\n` +
     `👔 ${shift.dress_code}\n` +
     `🕐 ${shift.start_time} – ${shift.end_time}\n` +
-    `👥 Spots: ${filled}/${slots}  ${statusBar}\n` +
+    (shift.zbiorka ? `📌 Zbiórka: ${shift.zbiorka}\n` : '') +
+    (shift.lista   ? `📋 Lista do wypisu: ${shift.lista}\n` : '') +
+    `👥 Miejsca: ${filled}/${slots}  ${statusBar}\n` +
     (spotsLeft > 0
-      ? `✅ ${spotsLeft} spot${spotsLeft > 1 ? 's' : ''} available\n`
-      : `🔴 Shift is full\n`) +
-    `\n<b>Participants:</b>\n${participantLines}`
+      ? `✅ Wolne miejsca: ${spotsLeft}\n`
+      : `🔴 Zmiana jest pełna\n`) +
+    `\n<b>Uczestnicy:</b>\n${participantLines}`
   );
 }
 
@@ -57,4 +59,24 @@ function shiftKeyboard(shiftId) {
   };
 }
 
-module.exports = { shiftText, shiftKeyboard, userName, formatDate };
+function confirmationText(shift) {
+  return (
+    `✅ <b>Zostałeś zapisany na zmianę!</b>\n\n` +
+    `📅 ${formatDate(shift.date)}\n` +
+    `📍 ${shift.location}\n` +
+    `👔 ${shift.dress_code}\n` +
+    `🕐 ${shift.start_time} – ${shift.end_time}\n\n` +
+    `Jeśli nie możesz przyjść — anuluj udział przyciskiem przy wiadomości ze zmianą.`
+  );
+}
+
+function cancellationText(shift) {
+  return (
+    `❌ <b>Anulowałeś udział w zmianie.</b>\n\n` +
+    `📅 ${formatDate(shift.date)}\n` +
+    `📍 ${shift.location}\n` +
+    `🕐 ${shift.start_time} – ${shift.end_time}`
+  );
+}
+
+module.exports = { shiftText, shiftKeyboard, userName, formatDate, confirmationText, cancellationText };

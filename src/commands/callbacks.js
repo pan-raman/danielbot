@@ -1,5 +1,5 @@
 const { joinShift, leaveShift, getShift, isBanned } = require('../db/queries');
-const { shiftText, shiftKeyboard } = require('../helpers/format');
+const { shiftText, shiftKeyboard, confirmationText, cancellationText } = require('../helpers/format');
 
 async function refreshShiftMessage(ctx, shiftId) {
   const shift = getShift(shiftId);
@@ -9,8 +9,14 @@ async function refreshShiftMessage(ctx, shiftId) {
       parse_mode: 'HTML',
       reply_markup: shiftKeyboard(shiftId),
     });
-  } catch (e) {
-    // Message unchanged or not editable – silently skip
+  } catch {}
+}
+
+async function sendDm(ctx, userId, text) {
+  try {
+    await ctx.telegram.sendMessage(userId, text, { parse_mode: 'HTML' });
+  } catch {
+    // User hasn't started the bot in private — can't send DM
   }
 }
 
@@ -21,20 +27,22 @@ function registerCallbacks(bot) {
     const shiftId = parseInt(ctx.match[1], 10);
 
     if (isBanned(userId)) {
-      return ctx.answerCbQuery('🚫 You are banned.', { show_alert: true });
+      return ctx.answerCbQuery('🚫 Jesteś zablokowany.', { show_alert: true });
     }
 
     const result = joinShift(shiftId, userId);
 
     if (result.ok) {
       await refreshShiftMessage(ctx, shiftId);
-      await ctx.answerCbQuery('✅ You signed up!', { show_alert: false });
+      await ctx.answerCbQuery('✅ Zapisano!', { show_alert: false });
+      const shift = getShift(shiftId);
+      await sendDm(ctx, userId, confirmationText(shift));
     } else if (result.reason === 'already_joined') {
-      await ctx.answerCbQuery("You're already signed up.", { show_alert: true });
+      await ctx.answerCbQuery('Jesteś już zapisany na tę zmianę.', { show_alert: true });
     } else if (result.reason === 'full') {
-      await ctx.answerCbQuery('🔴 This shift is full.', { show_alert: true });
+      await ctx.answerCbQuery('🔴 Zmiana jest już pełna.', { show_alert: true });
     } else {
-      await ctx.answerCbQuery('Shift not found.', { show_alert: true });
+      await ctx.answerCbQuery('Zmiana nie została znaleziona.', { show_alert: true });
     }
   });
 
@@ -42,13 +50,15 @@ function registerCallbacks(bot) {
     const userId  = ctx.from.id;
     const shiftId = parseInt(ctx.match[1], 10);
 
+    const shift   = getShift(shiftId);
     const removed = leaveShift(shiftId, userId);
 
     if (removed) {
       await refreshShiftMessage(ctx, shiftId);
-      await ctx.answerCbQuery('You have been removed from the shift.', { show_alert: false });
+      await ctx.answerCbQuery('Anulowano udział.', { show_alert: false });
+      if (shift) await sendDm(ctx, userId, cancellationText(shift));
     } else {
-      await ctx.answerCbQuery("You weren't signed up.", { show_alert: true });
+      await ctx.answerCbQuery('Nie byłeś zapisany na tę zmianę.', { show_alert: true });
     }
   });
 }

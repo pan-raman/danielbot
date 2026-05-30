@@ -3,22 +3,30 @@ const { createShift, updateShift, getShift, setShiftMessage, getSetting } = requ
 const { shiftText, shiftKeyboard } = require('../helpers/format');
 
 const BACK_KEYBOARD = {
-  inline_keyboard: [[{ text: '⬅️ К списку смен', callback_data: 'ap:shifts' }]],
+  inline_keyboard: [[{ text: '⬅️ Lista zmian', callback_data: 'ap:shifts' }]],
+};
+
+const LISTA_KEYBOARD = {
+  inline_keyboard: [
+    [{ text: 'Heaven',  callback_data: 'lista:Heaven'  }],
+    [{ text: 'Forkers', callback_data: 'lista:Forkers' }],
+  ],
 };
 
 // ── Step definitions ────────────────────────────────────────────────────────
+// Steps that use plain text input (wizard-driven)
+// lista and zbiorka are handled separately (inline button + text)
 
 const STEPS = [
-  { key: 'date',       prompt: '📅 Введи <b>дату</b> смены в формате ДД.ММ (например: 25.12):' },
-  { key: 'location',   prompt: '📍 Enter the <b>location</b>:' },
-  { key: 'dress_code', prompt: '👔 Enter the <b>dress code</b>:' },
-  { key: 'start_time', prompt: '🕐 Enter the <b>start time</b> (HH:MM):' },
-  { key: 'end_time',   prompt: '🕑 Enter the <b>end time</b> (HH:MM):' },
-  { key: 'required',   prompt: '👥 How many people are <b>required</b>? (number):' },
+  { key: 'date',       prompt: '📅 Podaj <b>datę</b> zmiany w formacie DD.MM (np. 25.12):' },
+  { key: 'location',   prompt: '📍 Podaj <b>miejsce</b>:' },
+  { key: 'dress_code', prompt: '👔 Podaj <b>dress code</b>:' },
+  { key: 'start_time', prompt: '🕐 Podaj <b>godzinę rozpoczęcia</b> (GG:MM):' },
+  { key: 'end_time',   prompt: '🕑 Podaj <b>godzinę zakończenia</b> (GG:MM):' },
+  { key: 'required',   prompt: '👥 Ile osób jest <b>wymaganych</b>? (liczba):' },
 ];
 
 function parseDate(raw) {
-  // Accept DD.MM or DD.MM.YYYY
   const short = raw.match(/^(\d{1,2})\.(\d{1,2})$/);
   const full  = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
 
@@ -28,7 +36,6 @@ function parseDate(raw) {
     [, day, month] = short;
     const now = new Date();
     year = now.getFullYear();
-    // If the date has already passed this year, use next year
     const candidate = new Date(year, parseInt(month, 10) - 1, parseInt(day, 10));
     if (candidate < now) year += 1;
   } else if (full) {
@@ -42,11 +49,8 @@ function parseDate(raw) {
   const d = String(day).padStart(2, '0');
   const m = String(month).padStart(2, '0');
   const y = String(year);
-
-  // Validate
   const date = new Date(`${y}-${m}-${d}`);
   if (isNaN(date.getTime())) return null;
-
   return `${y}-${m}-${d}`;
 }
 
@@ -63,27 +67,26 @@ const createShiftScene = new Scenes.WizardScene(
   async (ctx) => {
     ctx.scene.state.data = {};
     await ctx.replyWithHTML(
-      '🆕 <b>New Shift</b>\n\nLet\'s fill in the details step by step.\n\n' +
+      '🆕 <b>Nowa zmiana</b>\n\nWypełniamy szczegóły krok po kroku.\n\n' +
       STEPS[0].prompt +
-      '\n\n/cancel to abort'
+      '\n\n/cancel — anuluj'
     );
     return ctx.wizard.next();
   },
 
-  // Steps 1-5 – generic handler driven by STEPS array
+  // Steps 1-5 – text fields
   ...STEPS.slice(1).map((step, i) => async (ctx) => {
     if (!ctx.message?.text) return;
     const prevKey = STEPS[i].key;
     const raw = ctx.message.text.trim();
 
-    // Validate previous input
     if (prevKey === 'date') {
       const parsed = parseDate(raw);
-      if (!parsed) return ctx.replyWithHTML('⚠️ Invalid date. Try <code>2024-12-31</code> or <code>31.12.2024</code>');
+      if (!parsed) return ctx.replyWithHTML('⚠️ Nieprawidłowa data. Spróbuj <code>25.12</code>');
       ctx.scene.state.data[prevKey] = parsed;
     } else if (prevKey === 'start_time' || prevKey === 'end_time') {
       const parsed = parseTime(raw);
-      if (!parsed) return ctx.replyWithHTML('⚠️ Invalid time. Use HH:MM format.');
+      if (!parsed) return ctx.replyWithHTML('⚠️ Nieprawidłowy czas. Użyj formatu GG:MM.');
       ctx.scene.state.data[prevKey] = parsed;
     } else {
       ctx.scene.state.data[prevKey] = raw;
@@ -93,19 +96,32 @@ const createShiftScene = new Scenes.WizardScene(
     return ctx.wizard.next();
   }),
 
-  // Final step – validate last field and save
+  // Step 6 – validate required (last text step), ask lista
   async (ctx) => {
     if (!ctx.message?.text) return;
-    const raw = ctx.message.text.trim();
-    const lastStep = STEPS[STEPS.length - 1];
+    const n = parseInt(ctx.message.text.trim(), 10);
+    if (isNaN(n) || n < 1) return ctx.reply('⚠️ Podaj prawidłową liczbę (minimum 1).');
+    ctx.scene.state.data.required = n;
 
-    if (lastStep.key === 'required') {
-      const n = parseInt(raw, 10);
-      if (isNaN(n) || n < 1) return ctx.reply('⚠️ Please enter a valid number (minimum 1).');
-      ctx.scene.state.data.required = n;
-    } else {
-      ctx.scene.state.data[lastStep.key] = raw;
-    }
+    await ctx.replyWithHTML('📋 Wybierz <b>Lista do wypisu</b>:', { reply_markup: LISTA_KEYBOARD });
+    return ctx.wizard.next();
+  },
+
+  // Step 7 – receive lista (button), ask zbiorka
+  async (ctx) => {
+    if (!ctx.callbackQuery?.data?.startsWith('lista:')) return;
+    const lista = ctx.callbackQuery.data.replace('lista:', '');
+    await ctx.answerCbQuery();
+    ctx.scene.state.data.lista = lista;
+
+    await ctx.replyWithHTML('📍 Podaj <b>Zbiórka</b> (miejsce zbiórki):');
+    return ctx.wizard.next();
+  },
+
+  // Step 8 – receive zbiorka, save and post
+  async (ctx) => {
+    if (!ctx.message?.text) return;
+    ctx.scene.state.data.zbiorka = ctx.message.text.trim();
 
     const { data } = ctx.scene.state;
     const shiftId = createShift({ ...data, created_by: ctx.from.id });
@@ -119,42 +135,40 @@ const createShiftScene = new Scenes.WizardScene(
         parse_mode: 'HTML',
         reply_markup: shiftKeyboard(shiftId),
       });
-      await ctx.reply(`✅ Shift #${shiftId} posted to the group!`);
+      await ctx.replyWithHTML('✅ Zmiana utworzona i opublikowana w grupie!', { reply_markup: BACK_KEYBOARD });
     } else {
-      sent = await ctx.replyWithHTML(shiftText(shift), {
-        reply_markup: shiftKeyboard(shiftId),
-      });
-      await ctx.reply(`✅ Shift #${shiftId} created!\n\n⚠️ No group linked yet. Use /setchat in your group to link it.`);
+      sent = await ctx.replyWithHTML(shiftText(shift), { reply_markup: shiftKeyboard(shiftId) });
+      await ctx.replyWithHTML('✅ Zmiana utworzona!\n\n⚠️ Brak połączonej grupy. Użyj /setchat w grupie.', { reply_markup: BACK_KEYBOARD });
     }
 
     setShiftMessage(shiftId, sent.chat.id, sent.message_id);
-    await ctx.replyWithHTML(`✅ Смена создана!`, { reply_markup: BACK_KEYBOARD });
     return ctx.scene.leave();
   }
 );
 
-// Cancel command inside wizard
 createShiftScene.command('cancel', async (ctx) => {
-  await ctx.reply('❌ Shift creation cancelled.');
+  await ctx.reply('❌ Tworzenie zmiany anulowane.');
   return ctx.scene.leave();
 });
 
 // ── Edit Shift Scene ─────────────────────────────────────────────────────────
 
 const EDIT_FIELDS = {
-  date:       { label: 'Дата',          validate: parseDate,  hint: '(ДД.ММ)' },
-  location:   { label: 'Место',         validate: v => v,     hint: '' },
-  dress_code: { label: 'Дресс-код',     validate: v => v,     hint: '' },
-  start_time: { label: 'Начало',        validate: parseTime,  hint: '(ЧЧ:ММ)' },
-  end_time:   { label: 'Конец',         validate: parseTime,  hint: '(ЧЧ:ММ)' },
-  required:   { label: 'Кол-во мест',   validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '' },
+  date:       { label: 'Data',           validate: parseDate,  hint: '(DD.MM)',  type: 'text' },
+  location:   { label: 'Miejsce',        validate: v => v,     hint: '',         type: 'text' },
+  dress_code: { label: 'Dress code',     validate: v => v,     hint: '',         type: 'text' },
+  start_time: { label: 'Początek',       validate: parseTime,  hint: '(GG:MM)', type: 'text' },
+  end_time:   { label: 'Koniec',         validate: parseTime,  hint: '(GG:MM)', type: 'text' },
+  required:   { label: 'Liczba miejsc',  validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '', type: 'text' },
+  lista:      { label: 'Lista do wypisu',validate: v => v,     hint: '',         type: 'button' },
+  zbiorka:    { label: 'Zbiórka',        validate: v => v,     hint: '',         type: 'text' },
 };
 
 function editFieldsKeyboard() {
   return {
     inline_keyboard: Object.entries(EDIT_FIELDS).map(([key, { label }]) => (
       [{ text: label, callback_data: `editfield:${key}` }]
-    )).concat([[{ text: '✅ Завершить редактирование', callback_data: 'editfield:done' }]]),
+    )).concat([[{ text: '✅ Zakończ edycję', callback_data: 'editfield:done' }]]),
   };
 }
 
@@ -165,53 +179,66 @@ const editShiftScene = new Scenes.WizardScene(
   async (ctx) => {
     const shiftId = ctx.scene.state.shiftId;
     const shift   = getShift(shiftId);
-    if (!shift) { await ctx.reply('Смена не найдена.'); return ctx.scene.leave(); }
+    if (!shift) { await ctx.reply('Zmiana nie została znaleziona.'); return ctx.scene.leave(); }
 
     await ctx.replyWithHTML(
-      `✏️ <b>Редактировать смену</b>\n\n${shiftText(shift)}\n\nКакое поле изменить?`,
+      `✏️ <b>Edytuj zmianę</b>\n\n${shiftText(shift)}\n\nKtóre pole chcesz zmienić?`,
       { reply_markup: editFieldsKeyboard() }
     );
     return ctx.wizard.next();
   },
 
-  // Step 1 – wait for field choice
+  // Step 1 – receive field choice
   async (ctx) => {
     if (!ctx.callbackQuery?.data) return;
-    const data = ctx.callbackQuery.data;
+    const cbData = ctx.callbackQuery.data;
     await ctx.answerCbQuery();
 
-    if (data === 'editfield:done') {
+    if (cbData === 'editfield:done') {
       await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-      await ctx.reply('✅ Редактирование завершено.', { reply_markup: BACK_KEYBOARD });
+      await ctx.reply('✅ Edycja zakończona.', { reply_markup: BACK_KEYBOARD });
       return ctx.scene.leave();
     }
 
-    const field = data.replace('editfield:', '');
+    const field = cbData.replace('editfield:', '');
     if (!EDIT_FIELDS[field]) return;
 
     ctx.scene.state.editField = field;
-    const { label, hint } = EDIT_FIELDS[field];
-    await ctx.replyWithHTML(`Введи новое значение для <b>${label}</b> ${hint}:`);
+
+    if (field === 'lista') {
+      await ctx.replyWithHTML('📋 Wybierz <b>Lista do wypisu</b>:', { reply_markup: LISTA_KEYBOARD });
+    } else {
+      const { label, hint } = EDIT_FIELDS[field];
+      await ctx.replyWithHTML(`Podaj nową wartość dla <b>${label}</b> ${hint}:`);
+    }
     return ctx.wizard.next();
   },
 
-  // Step 2 – receive new value, save, go back to step 0
+  // Step 2 – receive new value (text or button)
   async (ctx) => {
-    if (!ctx.message?.text) return;
-    const raw   = ctx.message.text.trim();
     const field = ctx.scene.state.editField;
+
+    let raw;
+    if (field === 'lista') {
+      if (!ctx.callbackQuery?.data?.startsWith('lista:')) return;
+      raw = ctx.callbackQuery.data.replace('lista:', '');
+      await ctx.answerCbQuery();
+    } else {
+      if (!ctx.message?.text) return;
+      raw = ctx.message.text.trim();
+    }
+
     const { validate } = EDIT_FIELDS[field];
     const value = validate(raw);
 
     if (value === null || value === undefined) {
-      return ctx.reply('⚠️ Неверное значение. Попробуй ещё раз.');
+      return ctx.reply('⚠️ Nieprawidłowa wartość. Spróbuj ponownie.');
     }
 
     const { shiftId } = ctx.scene.state;
     updateShift(shiftId, { [field]: value });
     const shift = getShift(shiftId);
 
-    // Update the group post
     if (shift.chat_id && shift.message_id) {
       try {
         await ctx.telegram.editMessageText(
@@ -223,16 +250,15 @@ const editShiftScene = new Scenes.WizardScene(
     }
 
     await ctx.replyWithHTML(
-      `✅ <b>${EDIT_FIELDS[field].label}</b> обновлено.\n\n${shiftText(shift)}\n\nКакое поле изменить ещё?`,
+      `✅ <b>${EDIT_FIELDS[field].label}</b> zaktualizowano.\n\n${shiftText(shift)}\n\nKtóre pole chcesz zmienić?`,
       { reply_markup: editFieldsKeyboard() }
     );
-    // Go back to step 1 (field picker)
     ctx.wizard.selectStep(1);
   }
 );
 
 editShiftScene.command('cancel', async (ctx) => {
-  await ctx.reply('Edit cancelled.');
+  await ctx.reply('Edycja anulowana.');
   return ctx.scene.leave();
 });
 
