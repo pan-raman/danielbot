@@ -1,176 +1,226 @@
-const { Markup } = require('telegraf');
 const {
   getAllShifts, getShift, deleteShift, getParticipants,
-  setShiftMessage, getAllUsers, setBanned, setAdmin, isBanned,
+  setShiftMessage, getAllUsers, setBanned, setAdmin,
   getSetting, setSetting,
 } = require('../db/queries');
-const { shiftText, shiftKeyboard, userName } = require('../helpers/format');
+const { shiftText, shiftKeyboard, userName, formatDate } = require('../helpers/format');
 const { adminOnly } = require('../middleware/guards');
+
+// ── Keyboard builders ────────────────────────────────────────────────────────
+
+function menuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: '➕ Создать смену',  callback_data: 'ap:newshift' }],
+      [{ text: '📋 Список смен',    callback_data: 'ap:shifts' }],
+      [{ text: '👥 Пользователи',   callback_data: 'ap:users' }],
+    ],
+  };
+}
+
+function shiftsKeyboard(shifts) {
+  const rows = shifts.map(s => {
+    const count = getParticipants(s.id).length;
+    return [{ text: `${formatDate(s.date)} | ${s.location} | ${count}/${s.required}`, callback_data: `ap:shift:${s.id}` }];
+  });
+  rows.push([{ text: '⬅️ Назад', callback_data: 'ap:menu' }]);
+  return { inline_keyboard: rows };
+}
+
+function shiftDetailKeyboard(shiftId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: '✏️ Редактировать', callback_data: `ap:edit:${shiftId}` },
+        { text: '🗑 Удалить',        callback_data: `ap:del_confirm:${shiftId}` },
+      ],
+      [{ text: '⬅️ К списку', callback_data: 'ap:shifts' }],
+    ],
+  };
+}
+
+function deleteConfirmKeyboard(shiftId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: '✅ Да, удалить',  callback_data: `ap:del:${shiftId}` },
+        { text: '❌ Отмена',        callback_data: `ap:shift:${shiftId}` },
+      ],
+    ],
+  };
+}
+
+function backToListKeyboard() {
+  return { inline_keyboard: [[{ text: '⬅️ К списку смен', callback_data: 'ap:shifts' }]] };
+}
+
+// ── Screen helpers ───────────────────────────────────────────────────────────
+
+async function showMenu(ctx) {
+  const text = '🛠 <b>Панель администратора</b>\n\nВыбери действие:';
+  if (ctx.callbackQuery) {
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: menuKeyboard() });
+    await ctx.answerCbQuery();
+  } else {
+    await ctx.replyWithHTML(text, { reply_markup: menuKeyboard() });
+  }
+}
+
+async function showShiftList(ctx) {
+  const shifts = getAllShifts();
+  if (!shifts.length) {
+    const text = 'Смен пока нет.';
+    const kb = { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'ap:menu' }]] };
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, { reply_markup: kb });
+      await ctx.answerCbQuery();
+    } else {
+      await ctx.reply(text, { reply_markup: kb });
+    }
+    return;
+  }
+  const text = '📋 <b>Список смен</b>\n\nВыбери смену:';
+  if (ctx.callbackQuery) {
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: shiftsKeyboard(shifts) });
+    await ctx.answerCbQuery();
+  } else {
+    await ctx.replyWithHTML(text, { reply_markup: shiftsKeyboard(shifts) });
+  }
+}
+
+async function showShiftDetail(ctx, shiftId) {
+  const shift = getShift(shiftId);
+  if (!shift) { await ctx.answerCbQuery('Смена не найдена', { show_alert: true }); return; }
+
+  const participants = getParticipants(shiftId);
+  const pList = participants.length
+    ? participants.map((u, i) => `${i + 1}. ${userName(u)}`).join('\n')
+    : '—';
+
+  const text = shiftText(shift) + `\n\n<b>Участники (${participants.length}/${shift.required}):</b>\n${pList}`;
+
+  if (ctx.callbackQuery) {
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: shiftDetailKeyboard(shiftId) });
+    await ctx.answerCbQuery();
+  } else {
+    await ctx.replyWithHTML(text, { reply_markup: shiftDetailKeyboard(shiftId) });
+  }
+}
+
+// ── Register ─────────────────────────────────────────────────────────────────
 
 function registerAdminCommands(bot) {
 
-  // /newshift – start wizard
-  bot.command('newshift', adminOnly, (ctx) => {
-    ctx.scene.enter('create_shift');
+  // /admin – main panel
+  bot.command('admin', adminOnly, (ctx) => showMenu(ctx));
+
+  // ── Navigation callbacks ─────────────────────────────────────────────────
+
+  bot.action('ap:menu',   adminOnly, (ctx) => showMenu(ctx));
+  bot.action('ap:shifts', adminOnly, (ctx) => showShiftList(ctx));
+
+  bot.action(/^ap:shift:(\d+)$/, adminOnly, (ctx) =>
+    showShiftDetail(ctx, parseInt(ctx.match[1], 10))
+  );
+
+  // ── Create ───────────────────────────────────────────────────────────────
+
+  bot.action('ap:newshift', adminOnly, async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.scene.enter('create_shift');
   });
 
-  // /shifts – list all upcoming shifts
-  bot.command('shifts', adminOnly, async (ctx) => {
-    const shifts = getAllShifts();
-    if (!shifts.length) return ctx.reply('No shifts found.');
+  // ── Edit ─────────────────────────────────────────────────────────────────
 
-    const lines = shifts.map(s => {
-      const count = getParticipants(s.id).length;
-      return `#${s.id} | ${s.date} | ${s.location} | ${s.start_time}–${s.end_time} | ${count}/${s.required}`;
-    });
-
-    await ctx.replyWithHTML(
-      '<b>All Shifts:</b>\n\n' + lines.join('\n') +
-      '\n\nUse /shift_&lt;id&gt; to manage a specific shift.'
-    );
-  });
-
-  // /shift_<id> – manage specific shift
-  bot.hears(/^\/shift_(\d+)$/, adminOnly, async (ctx) => {
-    const id    = parseInt(ctx.match[1], 10);
-    const shift = getShift(id);
-    if (!shift) return ctx.reply('Shift not found.');
-
-    const participants = getParticipants(id);
-    const pList = participants.length
-      ? participants.map((u, i) => `${i + 1}. ${userName(u)}`).join('\n')
-      : '—';
-
-    await ctx.replyWithHTML(
-      shiftText(shift) + `\n\n<b>Full participant list:</b>\n${pList}`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '✏️ Edit',   callback_data: `admin_edit:${id}` },
-              { text: '🗑 Delete', callback_data: `admin_delete:${id}` },
-            ],
-            [
-              { text: '📤 Post to chat', callback_data: `admin_post:${id}` },
-            ],
-          ],
-        },
-      }
-    );
-  });
-
-  // Admin action callbacks
-  bot.action(/^admin_edit:(\d+)$/, adminOnly, async (ctx) => {
+  bot.action(/^ap:edit:(\d+)$/, adminOnly, async (ctx) => {
     const id = parseInt(ctx.match[1], 10);
     await ctx.answerCbQuery();
     ctx.scene.state = { shiftId: id };
-    ctx.scene.enter('edit_shift');
+    await ctx.scene.enter('edit_shift');
   });
 
-  bot.action(/^admin_delete:(\d+)$/, adminOnly, async (ctx) => {
+  // ── Delete ───────────────────────────────────────────────────────────────
+
+  bot.action(/^ap:del_confirm:(\d+)$/, adminOnly, async (ctx) => {
     const id    = parseInt(ctx.match[1], 10);
     const shift = getShift(id);
-    if (!shift) { await ctx.answerCbQuery('Not found'); return; }
-
-    // Remove the original shift post if possible
-    if (shift.chat_id && shift.message_id) {
-      try {
-        await ctx.telegram.deleteMessage(shift.chat_id, shift.message_id);
-      } catch {}
-    }
-
-    deleteShift(id);
-    await ctx.answerCbQuery('Deleted');
-    await ctx.editMessageText(`🗑 Shift #${id} deleted.`);
-  });
-
-  bot.action(/^admin_post:(\d+)$/, adminOnly, async (ctx) => {
-    const id    = parseInt(ctx.match[1], 10);
-    const shift = getShift(id);
-    if (!shift) { await ctx.answerCbQuery('Not found'); return; }
-
-    await ctx.answerCbQuery('Posting…');
-
-    const sent = await ctx.replyWithHTML(shiftText(shift), {
-      reply_markup: shiftKeyboard(id),
-    });
-    setShiftMessage(id, sent.chat.id, sent.message_id);
-    await ctx.reply(`✅ Shift #${id} posted.`);
-  });
-
-  // ── User management ──────────────────────────────────────────────────────
-
-  // /users – list all known users
-  bot.command('users', adminOnly, async (ctx) => {
-    const users = getAllUsers();
-    if (!users.length) return ctx.reply('No users yet.');
-
-    const lines = users.map(u =>
-      `${u.id} | ${userName(u)} | admin:${u.is_admin ? 'yes' : 'no'} | banned:${u.is_banned ? 'yes' : 'no'}`
+    if (!shift) { await ctx.answerCbQuery('Не найдено'); return; }
+    await ctx.editMessageText(
+      `🗑 Удалить смену?\n\n📅 ${formatDate(shift.date)} | ${shift.location}`,
+      { reply_markup: deleteConfirmKeyboard(id) }
     );
-    await ctx.replyWithHTML('<b>Users:</b>\n\n<code>' + lines.join('\n') + '</code>');
+    await ctx.answerCbQuery();
   });
 
-  // /ban <user_id>
-  bot.command('ban', adminOnly, async (ctx) => {
-    const args  = ctx.message.text.split(' ');
-    const uid   = parseInt(args[1], 10);
-    if (isNaN(uid)) return ctx.reply('Usage: /ban <user_id>');
-    setBanned(uid, true);
-    await ctx.reply(`🚫 User ${uid} banned.`);
+  bot.action(/^ap:del:(\d+)$/, adminOnly, async (ctx) => {
+    const id    = parseInt(ctx.match[1], 10);
+    const shift = getShift(id);
+    if (!shift) { await ctx.answerCbQuery('Не найдено'); return; }
+
+    if (shift.chat_id && shift.message_id) {
+      try { await ctx.telegram.deleteMessage(shift.chat_id, shift.message_id); } catch {}
+    }
+    deleteShift(id);
+
+    await ctx.editMessageText('🗑 Смена удалена.', { reply_markup: backToListKeyboard() });
+    await ctx.answerCbQuery('Удалено');
   });
 
-  // /unban <user_id>
-  bot.command('unban', adminOnly, async (ctx) => {
-    const args  = ctx.message.text.split(' ');
-    const uid   = parseInt(args[1], 10);
-    if (isNaN(uid)) return ctx.reply('Usage: /unban <user_id>');
-    setBanned(uid, false);
-    await ctx.reply(`✅ User ${uid} unbanned.`);
+  // ── Users ────────────────────────────────────────────────────────────────
+
+  bot.action('ap:users', adminOnly, async (ctx) => {
+    const users = getAllUsers();
+    const lines = users.length
+      ? users.map(u => `<code>${u.id}</code> ${userName(u)} ${u.is_admin ? '⭐' : ''} ${u.is_banned ? '🚫' : ''}`)
+      : ['Пользователей пока нет.'];
+
+    await ctx.editMessageText(
+      '<b>👥 Пользователи</b>\n\n' + lines.join('\n'),
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'ap:menu' }]] },
+      }
+    );
+    await ctx.answerCbQuery();
   });
 
-  // /makeadmin <user_id>
-  bot.command('makeadmin', adminOnly, async (ctx) => {
-    const args  = ctx.message.text.split(' ');
-    const uid   = parseInt(args[1], 10);
-    if (isNaN(uid)) return ctx.reply('Usage: /makeadmin <user_id>');
-    setAdmin(uid, true);
-    await ctx.reply(`⭐ User ${uid} promoted to admin.`);
-  });
+  // ── Text commands (kept for power users) ────────────────────────────────
 
-  // /removeadmin <user_id>
-  bot.command('removeadmin', adminOnly, async (ctx) => {
-    const args  = ctx.message.text.split(' ');
-    const uid   = parseInt(args[1], 10);
-    if (isNaN(uid)) return ctx.reply('Usage: /removeadmin <user_id>');
-    setAdmin(uid, false);
-    await ctx.reply(`User ${uid} demoted.`);
-  });
-
-  // /setchat – link current group as the target for shift posts
   bot.command('setchat', adminOnly, async (ctx) => {
     if (ctx.chat.type === 'private') {
-      return ctx.reply('⚠️ Run this command inside the group you want to link.');
+      return ctx.reply('⚠️ Выполни эту команду внутри группы, которую хочешь привязать.');
     }
     setSetting('target_chat_id', ctx.chat.id);
-    await ctx.reply(`✅ This group is now linked. All new shifts will be posted here.\n\nYou can now create shifts in private with me via /newshift.`);
+    await ctx.reply('✅ Группа привязана! Все новые смены будут публиковаться здесь.');
   });
 
-  // /adminhelp
-  bot.command('adminhelp', adminOnly, (ctx) => {
-    ctx.replyWithHTML(
-      '<b>Admin Commands</b>\n\n' +
-      '/newshift – Create a new shift (use in private chat!)\n' +
-      '/setchat – Link current group for shift posts (run in group)\n' +
-      '/shifts – List all shifts\n' +
-      '/shift_&lt;id&gt; – Manage a specific shift\n' +
-      '/users – List all users\n' +
-      '/ban &lt;id&gt; – Ban a user\n' +
-      '/unban &lt;id&gt; – Unban a user\n' +
-      '/makeadmin &lt;id&gt; – Promote to admin\n' +
-      '/removeadmin &lt;id&gt; – Demote admin\n'
-    );
+  bot.command('ban', adminOnly, async (ctx) => {
+    const uid = parseInt(ctx.message.text.split(' ')[1], 10);
+    if (isNaN(uid)) return ctx.reply('Использование: /ban <id>');
+    setBanned(uid, true);
+    await ctx.reply(`🚫 Пользователь ${uid} заблокирован.`);
+  });
+
+  bot.command('unban', adminOnly, async (ctx) => {
+    const uid = parseInt(ctx.message.text.split(' ')[1], 10);
+    if (isNaN(uid)) return ctx.reply('Использование: /unban <id>');
+    setBanned(uid, false);
+    await ctx.reply(`✅ Пользователь ${uid} разблокирован.`);
+  });
+
+  bot.command('makeadmin', adminOnly, async (ctx) => {
+    const uid = parseInt(ctx.message.text.split(' ')[1], 10);
+    if (isNaN(uid)) return ctx.reply('Использование: /makeadmin <id>');
+    setAdmin(uid, true);
+    await ctx.reply(`⭐ Пользователь ${uid} назначен администратором.`);
+  });
+
+  bot.command('removeadmin', adminOnly, async (ctx) => {
+    const uid = parseInt(ctx.message.text.split(' ')[1], 10);
+    if (isNaN(uid)) return ctx.reply('Использование: /removeadmin <id>');
+    setAdmin(uid, false);
+    await ctx.reply(`Пользователь ${uid} разжалован.`);
   });
 }
 
-module.exports = { registerAdminCommands };
+module.exports = { registerAdminCommands, backToListKeyboard };

@@ -1,11 +1,15 @@
 const { Scenes } = require('telegraf');
-const { createShift, updateShift, getShift, deleteShift, setShiftMessage, getAllShifts, getParticipants, getSetting } = require('../db/queries');
-const { shiftText, shiftKeyboard, userName } = require('../helpers/format');
+const { createShift, updateShift, getShift, setShiftMessage, getSetting } = require('../db/queries');
+const { shiftText, shiftKeyboard } = require('../helpers/format');
+
+const BACK_KEYBOARD = {
+  inline_keyboard: [[{ text: '⬅️ К списку смен', callback_data: 'ap:shifts' }]],
+};
 
 // ── Step definitions ────────────────────────────────────────────────────────
 
 const STEPS = [
-  { key: 'date',       prompt: '📅 Enter the shift <b>date</b> (e.g. 2024-12-31 or 31.12.2024):' },
+  { key: 'date',       prompt: '📅 Введи <b>дату</b> смены в формате ДД.ММ (например: 25.12):' },
   { key: 'location',   prompt: '📍 Enter the <b>location</b>:' },
   { key: 'dress_code', prompt: '👔 Enter the <b>dress code</b>:' },
   { key: 'start_time', prompt: '🕐 Enter the <b>start time</b> (HH:MM):' },
@@ -14,14 +18,36 @@ const STEPS = [
 ];
 
 function parseDate(raw) {
-  // Accept DD.MM.YYYY or YYYY-MM-DD
-  const dotMatch = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (dotMatch) {
-    const [, d, m, y] = dotMatch;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  // Accept DD.MM or DD.MM.YYYY
+  const short = raw.match(/^(\d{1,2})\.(\d{1,2})$/);
+  const full  = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+
+  let day, month, year;
+
+  if (short) {
+    [, day, month] = short;
+    const now = new Date();
+    year = now.getFullYear();
+    // If the date has already passed this year, use next year
+    const candidate = new Date(year, parseInt(month, 10) - 1, parseInt(day, 10));
+    if (candidate < now) year += 1;
+  } else if (full) {
+    [, day, month, year] = full;
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  } else {
+    return null;
   }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  return null;
+
+  const d = String(day).padStart(2, '0');
+  const m = String(month).padStart(2, '0');
+  const y = String(year);
+
+  // Validate
+  const date = new Date(`${y}-${m}-${d}`);
+  if (isNaN(date.getTime())) return null;
+
+  return `${y}-${m}-${d}`;
 }
 
 function parseTime(raw) {
@@ -102,6 +128,7 @@ const createShiftScene = new Scenes.WizardScene(
     }
 
     setShiftMessage(shiftId, sent.chat.id, sent.message_id);
+    await ctx.replyWithHTML(`✅ Смена создана!`, { reply_markup: BACK_KEYBOARD });
     return ctx.scene.leave();
   }
 );
@@ -194,7 +221,7 @@ const editShiftScene = new Scenes.WizardScene(
       } catch {}
     }
 
-    await ctx.replyWithHTML(`✅ <b>${EDIT_FIELDS[field].label}</b> updated.\n\n${shiftText(shift)}`);
+    await ctx.replyWithHTML(`✅ <b>${EDIT_FIELDS[field].label}</b> обновлено.\n\n${shiftText(shift)}`, { reply_markup: BACK_KEYBOARD });
     return ctx.scene.leave();
   }
 );

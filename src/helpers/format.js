@@ -1,5 +1,15 @@
 const { getParticipants } = require('../db/queries');
 
+const DAYS_PL = ['Nd', 'Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'Sb'];
+
+function formatDate(dateStr) {
+  const date = new Date(dateStr + 'T00:00:00');
+  const day  = String(date.getDate()).padStart(2, '0');
+  const mon  = String(date.getMonth() + 1).padStart(2, '0');
+  const dow  = DAYS_PL[date.getDay()];
+  return `${day}.${mon} ${dow}`;
+}
+
 function userName(user) {
   if (user.first_name || user.last_name) {
     return [user.first_name, user.last_name].filter(Boolean).join(' ');
@@ -20,7 +30,7 @@ function shiftText(shift) {
   const statusBar = buildStatusBar(filled, slots);
 
   return (
-    `📅 <b>${shift.date}</b>\n` +
+    `📅 <b>${formatDate(shift.date)}</b>\n` +
     `📍 <b>${shift.location}</b>\n` +
     `👔 ${shift.dress_code}\n` +
     `🕐 ${shift.start_time} – ${shift.end_time}\n` +
@@ -47,4 +57,4 @@ function shiftKeyboard(shiftId) {
   };
 }
 
-module.exports = { shiftText, shiftKeyboard, userName };
+module.exports = { shiftText, shiftKeyboard, userName, formatDate };
