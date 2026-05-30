@@ -46,6 +46,15 @@ function setAdmin(userId, admin) {
   getDb().prepare('UPDATE users SET is_admin = ? WHERE id = ?').run(admin ? 1 : 0, userId);
 }
 
+function setGender(userId, gender) {
+  getDb().prepare('UPDATE users SET gender = ? WHERE id = ?').run(gender, userId);
+}
+
+function getGender(userId) {
+  const row = getDb().prepare('SELECT gender FROM users WHERE id = ?').get(userId);
+  return row ? row.gender : null;
+}
+
 function getAllUsers() {
   return getDb().prepare('SELECT * FROM users ORDER BY created_at DESC').all();
 }
@@ -55,9 +64,9 @@ function getAllUsers() {
 function createShift(data) {
   const db = getDb();
   const result = db.prepare(`
-    INSERT INTO shifts (date, location, dress_code, start_time, end_time, required, lista, zbiorka, created_by)
-    VALUES (@date, @location, @dress_code, @start_time, @end_time, @required, @lista, @zbiorka, @created_by)
-  `).run({ lista: null, zbiorka: null, ...data });
+    INSERT INTO shifts (date, location, dress_code, start_time, end_time, required, lista, zbiorka, for_gender, created_by)
+    VALUES (@date, @location, @dress_code, @start_time, @end_time, @required, @lista, @zbiorka, @for_gender, @created_by)
+  `).run({ lista: null, zbiorka: null, for_gender: 'all', ...data });
   return result.lastInsertRowid;
 }
 
@@ -89,6 +98,14 @@ function joinShift(shiftId, userId) {
   const db = getDb();
   const shift = getShift(shiftId);
   if (!shift) return { ok: false, reason: 'not_found' };
+
+  // Gender check
+  const forGender = shift.for_gender || 'all';
+  if (forGender !== 'all') {
+    const user = getUser(userId);
+    if (!user || !user.gender) return { ok: false, reason: 'no_gender' };
+    if (user.gender !== forGender) return { ok: false, reason: 'wrong_gender' };
+  }
 
   const count = db.prepare(
     'SELECT COUNT(*) AS n FROM shift_participants WHERE shift_id = ?'
@@ -158,6 +175,7 @@ function setSetting(key, value) {
 
 module.exports = {
   upsertUser, getUser, isAdmin, isBanned, setBanned, setAdmin, getAllUsers,
+  setGender, getGender,
   createShift, getShift, getAllShifts, updateShift, deleteShift, setShiftMessage,
   joinShift, leaveShift, getParticipants, isParticipant,
   getShiftsStartingAt,

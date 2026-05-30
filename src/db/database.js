@@ -65,8 +65,12 @@ function migrate(db) {
 
   // Migrations for existing databases
   const cols = db.pragma('table_info(shifts)').map(c => c.name);
-  if (!cols.includes('lista'))   db.exec('ALTER TABLE shifts ADD COLUMN lista TEXT');
-  if (!cols.includes('zbiorka')) db.exec('ALTER TABLE shifts ADD COLUMN zbiorka TEXT');
+  if (!cols.includes('lista'))      db.exec('ALTER TABLE shifts ADD COLUMN lista TEXT');
+  if (!cols.includes('zbiorka'))    db.exec('ALTER TABLE shifts ADD COLUMN zbiorka TEXT');
+  if (!cols.includes('for_gender')) db.exec('ALTER TABLE shifts ADD COLUMN for_gender TEXT DEFAULT "all"');
+
+  const userCols = db.pragma('table_info(users)').map(c => c.name);
+  if (!userCols.includes('gender')) db.exec('ALTER TABLE users ADD COLUMN gender TEXT');
 }
 
 module.exports = { getDb };

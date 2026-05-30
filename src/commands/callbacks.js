@@ -41,6 +41,14 @@ function registerCallbacks(bot) {
       await ctx.answerCbQuery('Jesteś już zapisany na tę zmianę.', { show_alert: true });
     } else if (result.reason === 'full') {
       await ctx.answerCbQuery('🔴 Zmiana jest już pełna.', { show_alert: true });
+    } else if (result.reason === 'wrong_gender') {
+      await ctx.answerCbQuery('⛔ Ta zmiana jest przeznaczona dla innej płci.', { show_alert: true });
+    } else if (result.reason === 'no_gender') {
+      const botUsername = ctx.botInfo?.username;
+      await ctx.answerCbQuery(
+        `Najpierw zarejestruj się u bota! Otwórz @${botUsername} i naciśnij Start, aby wybrać płeć.`,
+        { show_alert: true }
+      );
     } else {
       await ctx.answerCbQuery('Zmiana nie została znaleziona.', { show_alert: true });
     }

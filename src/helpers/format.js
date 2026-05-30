@@ -17,6 +17,8 @@ function userName(user) {
   return user.username ? `@${user.username}` : `#${user.id}`;
 }
 
+const GENDER_LABEL = { male: '👨 Tylko mężczyźni', female: '👩 Tylko kobiety', all: '👥 Wszyscy' };
+
 function shiftText(shift) {
   const participants = getParticipants(shift.id);
   const filled  = participants.length;
@@ -34,8 +36,11 @@ function shiftText(shift) {
     `📍 <b>${shift.location}</b>\n` +
     `👔 ${shift.dress_code}\n` +
     `🕐 ${shift.start_time} – ${shift.end_time}\n` +
-    (shift.zbiorka ? `📌 Zbiórka: ${shift.zbiorka}\n` : '') +
-    (shift.lista   ? `📋 Lista do wypisu: ${shift.lista}\n` : '') +
+    (shift.zbiorka    ? `📌 Zbiórka: ${shift.zbiorka}\n`                            : '') +
+    (shift.lista      ? `📋 Lista do wypisu: ${shift.lista}\n`                       : '') +
+    (shift.for_gender && shift.for_gender !== 'all'
+      ? `${GENDER_LABEL[shift.for_gender]}\n`
+      : '') +
     `👥 Miejsca: ${filled}/${slots}  ${statusBar}\n` +
     (spotsLeft > 0
       ? `✅ Wolne miejsca: ${spotsLeft}\n`

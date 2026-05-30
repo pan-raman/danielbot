@@ -16,6 +16,16 @@ const LISTA_KEYBOARD = {
 const ZBIORKA_KEYBOARD = {
   inline_keyboard: [[{ text: 'Pomiń Zbiórka', callback_data: 'zbiorka:skip' }]],
 };
+
+const GENDER_KEYBOARD = {
+  inline_keyboard: [
+    [
+      { text: '👨 Tylko mężczyźni', callback_data: 'fg:male'   },
+      { text: '👩 Tylko kobiety',   callback_data: 'fg:female' },
+    ],
+    [{ text: '👥 Wszyscy',          callback_data: 'fg:all'    }],
+  ],
+};
 // Steps that use plain text input (wizard-driven)
 // lista and zbiorka are handled separately (inline button + text)
 
@@ -120,7 +130,7 @@ const createShiftScene = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  // Step 8 – receive zbiorka (text or skip), save and post
+  // Step 8 – receive zbiorka (text or skip), ask for_gender
   async (ctx) => {
     if (ctx.callbackQuery?.data === 'zbiorka:skip') {
       await ctx.answerCbQuery();
@@ -130,6 +140,17 @@ const createShiftScene = new Scenes.WizardScene(
     } else {
       return;
     }
+
+    await ctx.replyWithHTML('👥 Kto może zapisać się na tę zmianę?', { reply_markup: GENDER_KEYBOARD });
+    return ctx.wizard.next();
+  },
+
+  // Step 9 – receive for_gender, save and post
+  async (ctx) => {
+    if (!ctx.callbackQuery?.data?.startsWith('fg:')) return;
+    const forGender = ctx.callbackQuery.data.replace('fg:', '');
+    await ctx.answerCbQuery();
+    ctx.scene.state.data.for_gender = forGender;
 
     const { data } = ctx.scene.state;
     const shiftId = createShift({ ...data, created_by: ctx.from.id });
@@ -170,6 +191,7 @@ const EDIT_FIELDS = {
   required:   { label: 'Liczba miejsc',  validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '', type: 'text' },
   lista:      { label: 'Lista do wypisu',validate: v => v,     hint: '',         type: 'button' },
   zbiorka:    { label: 'Zbiórka',        validate: v => v || null, hint: '',         type: 'text' },
+  for_gender: { label: 'Dla kogo',       validate: v => v,         hint: '',         type: 'button' },
 };
 
 function editFieldsKeyboard() {
@@ -217,6 +239,8 @@ const editShiftScene = new Scenes.WizardScene(
       await ctx.replyWithHTML('📋 Wybierz <b>Lista do wypisu</b>:', { reply_markup: LISTA_KEYBOARD });
     } else if (field === 'zbiorka') {
       await ctx.replyWithHTML('📍 Podaj <b>Zbiórka</b> lub usuń:', { reply_markup: ZBIORKA_KEYBOARD });
+    } else if (field === 'for_gender') {
+      await ctx.replyWithHTML('👥 Kto może zapisać się na tę zmianę?', { reply_markup: GENDER_KEYBOARD });
     } else {
       const { label, hint } = EDIT_FIELDS[field];
       await ctx.replyWithHTML(`Podaj nową wartość dla <b>${label}</b> ${hint}:`);
@@ -232,6 +256,10 @@ const editShiftScene = new Scenes.WizardScene(
     if (field === 'lista') {
       if (!ctx.callbackQuery?.data?.startsWith('lista:')) return;
       raw = ctx.callbackQuery.data.replace('lista:', '');
+      await ctx.answerCbQuery();
+    } else if (field === 'for_gender') {
+      if (!ctx.callbackQuery?.data?.startsWith('fg:')) return;
+      raw = ctx.callbackQuery.data.replace('fg:', '');
       await ctx.answerCbQuery();
     } else if (field === 'zbiorka' && ctx.callbackQuery?.data === 'zbiorka:skip') {
       await ctx.answerCbQuery();

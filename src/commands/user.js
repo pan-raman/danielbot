@@ -1,23 +1,48 @@
-const { getAllShifts, getParticipants } = require('../db/queries');
+const { getAllShifts, getParticipants, getUser, setGender } = require('../db/queries');
 const { shiftText, shiftKeyboard } = require('../helpers/format');
 
+const GENDER_KEYBOARD = {
+  inline_keyboard: [
+    [{ text: '👨 Mężczyzna', callback_data: 'gender:male'   }],
+    [{ text: '👩 Kobieta',   callback_data: 'gender:female' }],
+  ],
+};
+
 const START_KEYBOARD = {
-  inline_keyboard: [[
-    { text: '📋 Moje zmiany', callback_data: 'my:shifts' },
-  ]],
+  inline_keyboard: [[{ text: '📋 Moje zmiany', callback_data: 'my:shifts' }]],
 };
 
 function registerUserCommands(bot) {
 
-  bot.start((ctx) => {
-    ctx.replyWithHTML(
-      '<b>Cześć!</b> 👋\n\n' +
-      'Ten bot pomaga zarządzać zmianami pracowniczymi.\n\n' +
-      'Naciśnij przycisk poniżej, aby zobaczyć swoje aktualne zmiany.',
-      { reply_markup: START_KEYBOARD }
+  bot.start(async (ctx) => {
+    const user = getUser(ctx.from.id);
+
+    if (!user || !user.gender) {
+      await ctx.replyWithHTML(
+        '<b>Cześć!</b> 👋\n\n' +
+        'Zanim zaczniesz — powiedz nam kim jesteś:'
+      , { reply_markup: GENDER_KEYBOARD });
+    } else {
+      await ctx.replyWithHTML(
+        '<b>Cześć!</b> 👋\n\nWybierz co chcesz zrobić:',
+        { reply_markup: START_KEYBOARD }
+      );
+    }
+  });
+
+  // Gender selection
+  bot.action(/^gender:(male|female)$/, async (ctx) => {
+    const gender = ctx.match[1];
+    setGender(ctx.from.id, gender);
+    await ctx.answerCbQuery();
+    const label = gender === 'male' ? '👨 Mężczyzna' : '👩 Kobieta';
+    await ctx.editMessageText(
+      `✅ Zapisano: <b>${label}</b>\n\nMożesz teraz zapisywać się na zmiany!`,
+      { parse_mode: 'HTML', reply_markup: START_KEYBOARD }
     );
   });
 
+  // My shifts
   bot.action('my:shifts', async (ctx) => {
     await ctx.answerCbQuery();
     const userId = ctx.from.id;
@@ -27,7 +52,10 @@ function registerUserCommands(bot) {
     );
 
     if (!mine.length) {
-      return ctx.replyWithHTML('Nie jesteś jeszcze zapisany na żadną zmianę.\n\nZmiany są publikowane w grupie — naciśnij <b>✅ Zapisz się</b>, aby dołączyć.');
+      return ctx.replyWithHTML(
+        'Nie jesteś jeszcze zapisany na żadną zmianę.\n\n' +
+        'Zmiany są publikowane w grupie — naciśnij <b>✅ Zapisz się</b>, aby dołączyć.'
+      );
     }
 
     await ctx.reply(`Twoje zmiany (${mine.length}):`);
@@ -45,7 +73,8 @@ function registerUserCommands(bot) {
 
     if (!mine.length) {
       return ctx.replyWithHTML(
-        'Nie jesteś jeszcze zapisany na żadną zmianę.\n\nZmiany są publikowane w grupie — naciśnij <b>✅ Zapisz się</b>, aby dołączyć.',
+        'Nie jesteś jeszcze zapisany na żadną zmianę.\n\n' +
+        'Zmiany są publikowane w grupie — naciśnij <b>✅ Zapisz się</b>, aby dołączyć.',
         { reply_markup: START_KEYBOARD }
       );
     }
