@@ -4,11 +4,24 @@ const { shiftText, shiftKeyboard, confirmationText, cancellationText } = require
 async function refreshShiftMessage(ctx, shiftId) {
   const shift = getShift(shiftId);
   if (!shift) return;
+
+  const text = shiftText(shift);
+  const keyboard = shiftKeyboard(shiftId);
+
+  // If shift has a pinned group message — update it directly
+  if (shift.chat_id && shift.message_id) {
+    try {
+      await ctx.telegram.editMessageText(
+        shift.chat_id, shift.message_id, undefined,
+        text, { parse_mode: 'HTML', reply_markup: keyboard }
+      );
+      return;
+    } catch {}
+  }
+
+  // Fallback: edit the message in current chat (only works if pressed in group)
   try {
-    await ctx.editMessageText(shiftText(shift), {
-      parse_mode: 'HTML',
-      reply_markup: shiftKeyboard(shiftId),
-    });
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   } catch {}
 }
 
