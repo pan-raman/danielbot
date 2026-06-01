@@ -88,9 +88,9 @@ function getAllAdminIds() {
 function createShift(data) {
   const db = getDb();
   const result = db.prepare(`
-    INSERT INTO shifts (date, location, dress_code, start_time, end_time, required, lista, zbiorka, zbiorka_contact, for_gender, priority_filter, created_by)
-    VALUES (@date, @location, @dress_code, @start_time, @end_time, @required, @lista, @zbiorka, @zbiorka_contact, @for_gender, @priority_filter, @created_by)
-  `).run({ lista: null, zbiorka: null, zbiorka_contact: null, for_gender: 'all', priority_filter: null, ...data });
+    INSERT INTO shifts (date, location, dress_code, start_time, end_time, required, lista, zbiorka, zbiorka_contact, for_gender, priority_filter, stawka, created_by)
+    VALUES (@date, @location, @dress_code, @start_time, @end_time, @required, @lista, @zbiorka, @zbiorka_contact, @for_gender, @priority_filter, @stawka, @created_by)
+  `).run({ lista: null, zbiorka: null, zbiorka_contact: null, for_gender: 'all', priority_filter: null, stawka: null, ...data });
   return result.lastInsertRowid;
 }
 

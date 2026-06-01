@@ -1,7 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '../../data/shifts.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/shifts.db');
 
 let db;
 
@@ -79,6 +79,7 @@ function migrate(db) {
   if (!cols.includes('for_gender'))        db.exec('ALTER TABLE shifts ADD COLUMN for_gender TEXT DEFAULT "all"');
   if (!cols.includes('zbiorka_contact'))   db.exec('ALTER TABLE shifts ADD COLUMN zbiorka_contact TEXT');
   if (!cols.includes('priority_filter'))   db.exec('ALTER TABLE shifts ADD COLUMN priority_filter TEXT');
+  if (!cols.includes('stawka'))            db.exec('ALTER TABLE shifts ADD COLUMN stawka REAL');
 
   const userCols = db.pragma('table_info(users)').map(c => c.name);
   if (!userCols.includes('gender'))        db.exec('ALTER TABLE users ADD COLUMN gender TEXT');

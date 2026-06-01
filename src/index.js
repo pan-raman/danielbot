@@ -10,9 +10,10 @@ const { registrationScene } = require('./scenes/registrationScene');
 const { editProfileScene } = require('./scenes/editProfileScene');
 const { registerAdminCommands } = require('./commands/admin');
 const { registerUserCommands }  = require('./commands/user');
-const { registerCallbacks }     = require('./commands/callbacks');
+const { registerCallbacks }         = require('./commands/callbacks');
 const { registerWorkhourCallbacks } = require('./commands/workhours');
-const { setupReminders }        = require('./reminders');
+const { registerReportCommand }     = require('./commands/reports');
+const { setupReminders }            = require('./reminders');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 if (!BOT_TOKEN) {
@@ -40,6 +41,7 @@ registerAdminCommands(bot);
 registerCallbacks(bot);
 registerParticipantCallbacks(bot);
 registerWorkhourCallbacks(bot);
+registerReportCommand(bot);
 
 // ── Reminders ─────────────────────────────────────────────────────────────────
 

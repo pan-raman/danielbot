@@ -50,6 +50,7 @@ const STEPS = [
   { key: 'start_time', prompt: '🕐 Podaj <b>godzinę rozpoczęcia</b> (GG:MM):' },
   { key: 'end_time',   prompt: '🕑 Podaj <b>godzinę zakończenia</b> (GG:MM):' },
   { key: 'required',   prompt: '👥 Ile osób jest <b>wymaganych</b>? (liczba):' },
+  { key: 'stawka',     prompt: '💰 Podaj <b>stawkę godzinową</b> (np. 25.50) lub pomiń /skip:' },
 ];
 
 function parseDate(raw) {
@@ -123,12 +124,31 @@ const createShiftScene = new Scenes.WizardScene(
     return ctx.wizard.next();
   }),
 
-  // Step 6 – validate required (last text step), ask lista
+  // Step 6 – validate required, ask stawka
   async (ctx) => {
     if (!ctx.message?.text) return;
     const n = parseInt(ctx.message.text.trim(), 10);
     if (isNaN(n) || n < 1) return ctx.reply('⚠️ Podaj prawidłową liczbę (minimum 1).');
     ctx.scene.state.data.required = n;
+
+    await ctx.replyWithHTML(
+      '💰 Podaj <b>stawkę godzinową</b> (zł, np. <code>25.50</code>)\n\nlub wyślij /skip aby pominąć:'
+    );
+    return ctx.wizard.next();
+  },
+
+  // Step 7 – receive stawka (or skip), ask lista
+  async (ctx) => {
+    if (!ctx.message?.text) return;
+    const raw = ctx.message.text.trim();
+
+    if (raw === '/skip') {
+      ctx.scene.state.data.stawka = null;
+    } else {
+      const val = parseFloat(raw.replace(',', '.'));
+      if (isNaN(val) || val < 0) return ctx.reply('⚠️ Nieprawidłowa stawka. Podaj liczbę (np. 25.50) lub /skip.');
+      ctx.scene.state.data.stawka = val;
+    }
 
     await ctx.replyWithHTML('📋 Wybierz <b>Lista do wypisu</b>:', { reply_markup: LISTA_KEYBOARD });
     return ctx.wizard.next();
@@ -256,7 +276,8 @@ const EDIT_FIELDS = {
   dress_code: { label: 'Dress code',     validate: v => v,     hint: '',         type: 'text' },
   start_time: { label: 'Początek',       validate: parseTime,  hint: '(GG:MM)', type: 'text' },
   end_time:   { label: 'Koniec',         validate: parseTime,  hint: '(GG:MM)', type: 'text' },
-  required:   { label: 'Liczba miejsc',  validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '', type: 'text' },
+  required:        { label: 'Liczba miejsc',  validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '', type: 'text' },
+  stawka:          { label: 'Stawka (zł/h)', validate: v => { if (!v || v === '/skip') return null; const n = parseFloat(v.replace(',','.')); return isNaN(n) ? null : n; }, hint: '(zł, lub /skip)', type: 'text' },
   lista:           { label: 'Lista do wypisu',  validate: v => v,         hint: '',        type: 'button' },
   zbiorka:         { label: 'Zbiórka',           validate: v => v || null, hint: '',        type: 'text' },
   zbiorka_contact: { label: 'Zbiórka — kontakt', validate: v => v || null, hint: '',        type: 'text' },
