@@ -1,7 +1,7 @@
 const {
   getAllShifts, getShift, deleteShift, getParticipants,
   setShiftMessage, getAllUsers, setBanned, setAdmin,
-  getSetting, setSetting, getUser,
+  getSetting, setSetting, getUser, setPriority,
 } = require('../db/queries');
 const { shiftText, shiftKeyboard, userName, formatDate } = require('../helpers/format');
 const { adminOnly } = require('../middleware/guards');
@@ -176,20 +176,72 @@ function registerAdminCommands(bot) {
 
   // ── Users ────────────────────────────────────────────────────────────────
 
-  bot.action('ap:users', adminOnly, async (ctx) => {
-    const users = getAllUsers();
-    const lines = users.length
-      ? users.map(u => `<code>${u.id}</code> ${userName(u)} ${u.is_admin ? '⭐' : ''} ${u.is_banned ? '🚫' : ''}`)
-      : ['Пользователей пока нет.'];
+  const PRIORITY_LABELS = { A: '⭐ A — VIP', B: '👍 B — dobry', C: '🔵 C — podstawowy' };
 
-    await ctx.editMessageText(
-      '<b>👥 Пользователи</b>\n\n' + lines.join('\n'),
-      {
-        parse_mode: 'HTML',
+  bot.action('ap:users', adminOnly, async (ctx) => {
+    const users = getAllUsers().filter(u => u.reg_name);
+    if (!users.length) {
+      await ctx.editMessageText('Brak zarejestrowanych użytkowników.', {
         reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'ap:menu' }]] },
-      }
-    );
+      });
+      return ctx.answerCbQuery();
+    }
+
+    const keyboard = {
+      inline_keyboard: [
+        ...users.map(u => [{
+          text: `${u.reg_name || userName(u)} ${u.priority ? `[${u.priority}]` : '[—]'}`,
+          callback_data: `ap:user:${u.id}`,
+        }]),
+        [{ text: '⬅️ Назад', callback_data: 'ap:menu' }],
+      ],
+    };
+
+    await ctx.editMessageText('<b>👥 Pracownicy</b>\n\nWybierz osobę aby nadać priorytet:', {
+      parse_mode: 'HTML',
+      reply_markup: keyboard,
+    });
     await ctx.answerCbQuery();
+  });
+
+  bot.action(/^ap:user:(\d+)$/, adminOnly, async (ctx) => {
+    const uid  = parseInt(ctx.match[1], 10);
+    const user = getUser(uid);
+    if (!user) { await ctx.answerCbQuery('Nie znaleziono'); return; }
+
+    const current = user.priority || '—';
+    const text =
+      `👤 <b>${user.reg_name || userName(user)}</b>\n` +
+      `📞 ${user.reg_phone || '—'}\n` +
+      `🪪 ${user.reg_pesel || '—'}\n` +
+      `Aktualny priorytet: <b>${current}</b>\n\n` +
+      `Wybierz nowy priorytet:`;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '⭐ A', callback_data: `ap:setprio:${uid}:A` },
+          { text: '👍 B', callback_data: `ap:setprio:${uid}:B` },
+          { text: '🔵 C', callback_data: `ap:setprio:${uid}:C` },
+        ],
+        [{ text: '⬅️ Wróć', callback_data: 'ap:users' }],
+      ],
+    };
+
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    await ctx.answerCbQuery();
+  });
+
+  bot.action(/^ap:setprio:(\d+):([ABC])$/, adminOnly, async (ctx) => {
+    const uid      = parseInt(ctx.match[1], 10);
+    const priority = ctx.match[2];
+    setPriority(uid, priority);
+    const user = getUser(uid);
+    await ctx.editMessageText(
+      `✅ Priorytet <b>${priority}</b> nadany dla <b>${user.reg_name || userName(user)}</b>`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '⬅️ Do listy', callback_data: 'ap:users' }]] } }
+    );
+    await ctx.answerCbQuery(`✅ Priorytet ${priority} nadany`);
   });
 
   // ── Text commands (kept for power users) ────────────────────────────────

@@ -59,6 +59,10 @@ function getAllUsers() {
   return getDb().prepare('SELECT * FROM users ORDER BY created_at DESC').all();
 }
 
+function setPriority(userId, priority) {
+  getDb().prepare('UPDATE users SET priority = ? WHERE id = ?').run(priority, userId);
+}
+
 function setRegistration(userId, { reg_name, reg_phone, reg_pesel, gender }) {
   getDb().prepare(
     'UPDATE users SET reg_name = ?, reg_phone = ?, reg_pesel = ?, gender = ? WHERE id = ?'
@@ -126,6 +130,14 @@ function joinShift(shiftId, userId) {
   if (forGender !== 'all') {
     if (!user || !user.gender) return { ok: false, reason: 'no_gender' };
     if (user.gender !== forGender) return { ok: false, reason: 'wrong_gender' };
+  }
+
+  // Priority check
+  if (shift.priority_filter) {
+    const allowed = shift.priority_filter.split(',');
+    if (!user?.priority || !allowed.includes(user.priority)) {
+      return { ok: false, reason: 'wrong_priority' };
+    }
   }
 
   // Check if already has any status (pending, approved, rejected)
@@ -260,7 +272,7 @@ function setSetting(key, value) {
 
 module.exports = {
   upsertUser, getUser, isAdmin, isBanned, setBanned, setAdmin, getAllUsers, getAllAdminIds,
-  setGender, getGender, setRegistration, isRegistered,
+  setGender, getGender, setRegistration, isRegistered, setPriority,
   createShift, getShift, getAllShifts, updateShift, deleteShift, setShiftMessage,
   joinShift, approveParticipant, rejectParticipant, leaveShift,
   getParticipants, isParticipant, getParticipantStatus,

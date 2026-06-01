@@ -27,6 +27,19 @@ const GENDER_KEYBOARD = {
     [{ text: '👥 Wszyscy',          callback_data: 'fg:all'    }],
   ],
 };
+function priorityKeyboard(selected) {
+  const priorities = ['A', 'B', 'C'];
+  return {
+    inline_keyboard: [
+      priorities.map(p => ({
+        text: selected.includes(p) ? `✅ ${p}` : p,
+        callback_data: `prio:${p}`,
+      })),
+      [{ text: '➡️ Dalej', callback_data: 'prio:done' }],
+    ],
+  };
+}
+
 // Steps that use plain text input (wizard-driven)
 // lista and zbiorka are handled separately (inline button + text)
 
@@ -169,12 +182,42 @@ const createShiftScene = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  // Step 9 – receive for_gender, save and post
+  // Step 9 – receive for_gender, ask priority filter
   async (ctx) => {
     if (!ctx.callbackQuery?.data?.startsWith('fg:')) return;
     const forGender = ctx.callbackQuery.data.replace('fg:', '');
     await ctx.answerCbQuery();
     ctx.scene.state.data.for_gender = forGender;
+    ctx.scene.state.selectedPriorities = [];
+
+    await ctx.replyWithHTML(
+      '⭐ Wybierz wymagany <b>priorytet</b> pracowników\n' +
+      '(można wybrać kilka, naciśnij ➡️ aby pominąć / zatwierdzić):',
+      { reply_markup: priorityKeyboard([]) }
+    );
+    return ctx.wizard.next();
+  },
+
+  // Step 10 – priority multi-select, then save and post
+  async (ctx) => {
+    if (!ctx.callbackQuery?.data) return;
+    const cb = ctx.callbackQuery.data;
+
+    if (cb.startsWith('prio:') && cb !== 'prio:done') {
+      const p        = cb.replace('prio:', '');
+      const selected = ctx.scene.state.selectedPriorities || [];
+      const idx      = selected.indexOf(p);
+      if (idx === -1) selected.push(p); else selected.splice(idx, 1);
+      ctx.scene.state.selectedPriorities = selected;
+      await ctx.editMessageReplyMarkup(priorityKeyboard(selected));
+      await ctx.answerCbQuery();
+      return; // stay on this step
+    }
+
+    // prio:done — save
+    await ctx.answerCbQuery();
+    const selected = ctx.scene.state.selectedPriorities || [];
+    ctx.scene.state.data.priority_filter = selected.length ? selected.join(',') : null;
 
     const { data } = ctx.scene.state;
     const shiftId = createShift({ ...data, created_by: ctx.from.id });
@@ -217,6 +260,7 @@ const EDIT_FIELDS = {
   zbiorka:         { label: 'Zbiórka',           validate: v => v || null, hint: '',        type: 'text' },
   zbiorka_contact: { label: 'Zbiórka — kontakt', validate: v => v || null, hint: '',        type: 'text' },
   for_gender:      { label: 'Dla kogo',          validate: v => v,         hint: '',        type: 'button' },
+  priority_filter: { label: 'Priorytet',         validate: v => v || null, hint: '',        type: 'button' },
 };
 
 function editFieldsKeyboard() {
@@ -266,6 +310,14 @@ const editShiftScene = new Scenes.WizardScene(
       await ctx.replyWithHTML(`📍 Podaj <b>${EDIT_FIELDS[field].label}</b> lub usuń:`, { reply_markup: ZBIORKA_KEYBOARD });
     } else if (field === 'for_gender') {
       await ctx.replyWithHTML('👥 Kto może zapisać się na tę zmianę?', { reply_markup: GENDER_KEYBOARD });
+    } else if (field === 'priority_filter') {
+      const shift    = getShift(ctx.scene.state.shiftId);
+      const current  = shift?.priority_filter ? shift.priority_filter.split(',') : [];
+      ctx.scene.state.editPriorities = current;
+      await ctx.replyWithHTML(
+        '⭐ Wybierz wymagany <b>priorytet</b> (naciśnij ➡️ aby zatwierdzić):',
+        { reply_markup: priorityKeyboard(current) }
+      );
     } else {
       const { label, hint } = EDIT_FIELDS[field];
       await ctx.replyWithHTML(`Podaj nową wartość dla <b>${label}</b> ${hint}:`);
@@ -276,6 +328,45 @@ const editShiftScene = new Scenes.WizardScene(
   // Step 2 – receive new value (text or button)
   async (ctx) => {
     const field = ctx.scene.state.editField;
+
+    // Priority multi-select — stay on step until done
+    if (field === 'priority_filter') {
+      if (!ctx.callbackQuery?.data) return;
+      const cb = ctx.callbackQuery.data;
+
+      if (cb.startsWith('prio:') && cb !== 'prio:done') {
+        const p        = cb.replace('prio:', '');
+        const selected = ctx.scene.state.editPriorities || [];
+        const idx      = selected.indexOf(p);
+        if (idx === -1) selected.push(p); else selected.splice(idx, 1);
+        ctx.scene.state.editPriorities = selected;
+        await ctx.editMessageReplyMarkup(priorityKeyboard(selected));
+        await ctx.answerCbQuery();
+        return;
+      }
+
+      await ctx.answerCbQuery();
+      const selected = ctx.scene.state.editPriorities || [];
+      const value    = selected.length ? selected.join(',') : null;
+      const { shiftId } = ctx.scene.state;
+      updateShift(shiftId, { priority_filter: value });
+      const shift = getShift(shiftId);
+      if (shift.chat_id && shift.message_id) {
+        try {
+          await ctx.telegram.editMessageText(
+            shift.chat_id, shift.message_id, undefined,
+            shiftText(shift),
+            { parse_mode: 'HTML', reply_markup: shiftKeyboard(shiftId) }
+          );
+        } catch {}
+      }
+      await ctx.replyWithHTML(
+        `✅ <b>Priorytet</b> zaktualizowano.\n\n${shiftText(shift)}\n\nKtóre pole chcesz zmienić?`,
+        { reply_markup: editFieldsKeyboard() }
+      );
+      ctx.wizard.selectStep(1);
+      return;
+    }
 
     let raw;
     if (field === 'lista') {

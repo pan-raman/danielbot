@@ -39,7 +39,7 @@ function shiftText(shift) {
 
   return (
     `📅 <b>${formatDate(shift.date)}</b>\n` +
-    `📍 <b>${shift.location}</b>\n` +
+    `📍 <b>${shift.location}${shift.priority_filter ? ` (${shift.priority_filter})` : ''}</b>\n` +
     `👔 ${shift.dress_code}\n` +
     `🕐 ${shift.start_time} – ${shift.end_time}\n` +
     (shift.zbiorka    ? `📌 Zbiórka: ${shift.zbiorka}\n` : '') +
