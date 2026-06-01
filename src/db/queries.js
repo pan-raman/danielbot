@@ -134,10 +134,10 @@ function joinShift(shiftId, userId) {
 
   // Priority check
   if (shift.priority_filter) {
-    const allowed = shift.priority_filter.split(',');
-    if (!user?.priority || !allowed.includes(user.priority)) {
-      return { ok: false, reason: 'wrong_priority' };
-    }
+    const allowed      = shift.priority_filter.split(',');
+    const userPriorities = user?.priority ? user.priority.split(',') : [];
+    const hasMatch     = userPriorities.some(p => allowed.includes(p));
+    if (!hasMatch) return { ok: false, reason: 'wrong_priority' };
   }
 
   // Check if already has any status (pending, approved, rejected)
