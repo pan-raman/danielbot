@@ -54,7 +54,7 @@ bot.catch((err, ctx) => {
 
 // ── Launch ────────────────────────────────────────────────────────────────────
 
-bot.launch()
+bot.launch({ dropPendingUpdates: true })
   .then(() => console.log('✅ Bot is running'))
   .catch(err => { console.error('Failed to start bot:', err); process.exit(1); });
 

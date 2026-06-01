@@ -246,6 +246,42 @@ function registerAdminCommands(bot) {
 
   // ── Text commands (kept for power users) ────────────────────────────────
 
+  bot.command('testreminder', adminOnly, async (ctx) => {
+    const { runReminderCheck } = require('../reminders');
+    const { getAllShifts, getParticipants } = require('../db/queries');
+
+    const now = new Date();
+    const nowStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+
+    const shifts = getAllShifts();
+    const todayShifts = shifts.filter(s => s.date === dateStr);
+
+    let report = `🔍 <b>Reminder debug</b>\n\n`;
+    report += `🕐 Bot time: <b>${nowStr}</b> (${dateStr})\n`;
+    report += `🌍 TZ: <b>${process.env.TZ || 'not set'}</b>\n\n`;
+    report += `Shifts today: <b>${todayShifts.length}</b>\n`;
+
+    for (const s of todayShifts) {
+      const p = getParticipants(s.id);
+      report += `\n#${s.id} ${s.location} | start: ${s.start_time} | end: ${s.end_time} | participants: ${p.length}`;
+    }
+
+    if (!todayShifts.length) {
+      report += `\n⚠️ No shifts found for today (${dateStr}).\nCheck that shift date matches today.`;
+    }
+
+    await ctx.replyWithHTML(report);
+
+    // Also run the check right now
+    try {
+      await runReminderCheck(bot);
+      await ctx.reply('✅ Reminder check ran. If participants exist and time matches ±1min, messages were sent.');
+    } catch (e) {
+      await ctx.reply(`❌ Error: ${e.message}`);
+    }
+  });
+
   bot.command('setchat', adminOnly, async (ctx) => {
     if (ctx.chat.type === 'private') {
       return ctx.reply('⚠️ Выполни эту команду внутри группы, которую хочешь привязать.');
