@@ -97,11 +97,12 @@ async function showShiftDetail(ctx, shiftId) {
 
   const pList = participants.length
     ? participants.map((u, i) => {
-        const full = getUser(u.id);
-        const name  = full?.reg_name || userName(u);
-        const phone = full?.reg_phone ? ` | 📞 ${full.reg_phone}` : '';
-        const pesel = full?.reg_pesel ? ` | 🪪 ${full.reg_pesel}` : '';
-        return `${i + 1}. ${name}${phone}${pesel}`;
+        const name  = u.snap_name  || u.reg_name  || userName(u);
+        const phone = u.snap_phone || '';
+        const pesel = u.snap_pesel || '';
+        return `${i + 1}. ${name}` +
+          (phone ? ` | 📞 ${phone}` : '') +
+          (pesel ? ` | 🪪 ${pesel}` : '');
       }).join('\n')
     : '—';
 

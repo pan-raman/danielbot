@@ -7,6 +7,7 @@ const { notBanned }             = require('./middleware/guards');
 const { createShiftScene, editShiftScene } = require('./scenes/shiftScenes');
 const { manageParticipantsScene, registerParticipantCallbacks } = require('./scenes/participantsScene');
 const { registrationScene } = require('./scenes/registrationScene');
+const { editProfileScene } = require('./scenes/editProfileScene');
 const { registerAdminCommands } = require('./commands/admin');
 const { registerUserCommands }  = require('./commands/user');
 const { registerCallbacks }     = require('./commands/callbacks');
@@ -22,7 +23,7 @@ const bot = new Telegraf(BOT_TOKEN);
 
 // ── Session + Scenes ─────────────────────────────────────────────────────────
 
-const stage = new Scenes.Stage([createShiftScene, editShiftScene, manageParticipantsScene, registrationScene]);
+const stage = new Scenes.Stage([createShiftScene, editShiftScene, manageParticipantsScene, registrationScene, editProfileScene]);
 bot.use(session());
 bot.use(stage.middleware());
 

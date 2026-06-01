@@ -144,8 +144,8 @@ function joinShift(shiftId, userId) {
   if (count >= shift.required) return { ok: false, reason: 'full' };
 
   db.prepare(
-    "INSERT INTO shift_participants (shift_id, user_id, status) VALUES (?, ?, 'pending')"
-  ).run(shiftId, userId);
+    "INSERT INTO shift_participants (shift_id, user_id, status, snap_name, snap_phone, snap_pesel) VALUES (?, ?, 'pending', ?, ?, ?)"
+  ).run(shiftId, userId, user.reg_name || null, user.reg_phone || null, user.reg_pesel || null);
 
   return { ok: true };
 }
@@ -183,7 +183,8 @@ function leaveShift(shiftId, userId) {
 // Only approved participants shown in the public post
 function getParticipants(shiftId) {
   return getDb().prepare(`
-    SELECT u.id, u.username, u.first_name, u.last_name
+    SELECT u.id, u.username, u.first_name, u.last_name, u.reg_name,
+           sp.snap_name, sp.snap_phone, sp.snap_pesel
     FROM shift_participants sp
     JOIN users u ON u.id = sp.user_id
     WHERE sp.shift_id = ? AND sp.status = 'approved'

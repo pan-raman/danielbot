@@ -87,6 +87,9 @@ function migrate(db) {
 
   const spCols = db.pragma('table_info(shift_participants)').map(c => c.name);
   if (!spCols.includes('status'))        db.exec("ALTER TABLE shift_participants ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'");
+  if (!spCols.includes('snap_name'))     db.exec('ALTER TABLE shift_participants ADD COLUMN snap_name TEXT');
+  if (!spCols.includes('snap_phone'))    db.exec('ALTER TABLE shift_participants ADD COLUMN snap_phone TEXT');
+  if (!spCols.includes('snap_pesel'))    db.exec('ALTER TABLE shift_participants ADD COLUMN snap_pesel TEXT');
 }
 
 module.exports = { getDb };

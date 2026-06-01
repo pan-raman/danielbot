@@ -11,6 +11,9 @@ function formatDate(dateStr) {
 }
 
 function userName(user) {
+  // snap_name takes priority (data at time of signup)
+  if (user.snap_name) return user.snap_name;
+  if (user.reg_name)  return user.reg_name;
   if (user.first_name || user.last_name) {
     return [user.first_name, user.last_name].filter(Boolean).join(' ');
   }

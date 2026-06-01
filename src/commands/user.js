@@ -1,8 +1,12 @@
 const { getAllShifts, getParticipants, getUser, isRegistered } = require('../db/queries');
 const { shiftText, shiftKeyboard } = require('../helpers/format');
+const { profileText, profileKeyboard } = require('../scenes/editProfileScene');
 
 const START_KEYBOARD = {
-  inline_keyboard: [[{ text: '📋 Moje zmiany', callback_data: 'my:shifts' }]],
+  inline_keyboard: [
+    [{ text: '📋 Moje zmiany',  callback_data: 'my:shifts'  }],
+    [{ text: '👤 Mój profil',   callback_data: 'my:profile' }],
+  ],
 };
 
 function registerUserCommands(bot) {
@@ -22,6 +26,14 @@ function registerUserCommands(bot) {
       { reply_markup: START_KEYBOARD }
     );
   });
+
+  // My profile
+  bot.action('my:profile', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.scene.enter('edit_profile');
+  });
+
+  bot.command('profile', (ctx) => ctx.scene.enter('edit_profile'));
 
   // My shifts
   bot.action('my:shifts', async (ctx) => {
