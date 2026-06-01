@@ -1,6 +1,6 @@
 const {
   joinShift, approveParticipant, rejectParticipant, leaveShift,
-  getShift, getUser, isBanned, getAllAdminIds,
+  getShift, getUser, isBanned, getAllAdminIds, isRegistered,
 } = require('../db/queries');
 const {
   shiftText, shiftKeyboard, confirmationText, cancellationText, formatDate,
@@ -53,6 +53,14 @@ function registerCallbacks(bot) {
 
     if (isBanned(userId)) {
       return ctx.answerCbQuery('🚫 Jesteś zablokowany.', { show_alert: true });
+    }
+
+    if (!isRegistered(userId)) {
+      const botUsername = ctx.botInfo?.username;
+      return ctx.answerCbQuery(
+        `Aby się zapisać, najpierw zarejestruj się u bota.\nOtwórz @${botUsername} i naciśnij Start.`,
+        { show_alert: true }
+      );
     }
 
     const result = joinShift(shiftId, userId);
