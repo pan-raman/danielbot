@@ -98,11 +98,11 @@ async function showShiftDetail(ctx, shiftId) {
   const pList = participants.length
     ? participants.map((u, i) => {
         const name  = u.snap_name  || u.reg_name  || userName(u);
-        const phone = u.snap_phone || '';
-        const pesel = u.snap_pesel || '';
-        return `${i + 1}. ${name}` +
-          (phone ? ` | 📞 ${phone}` : '') +
-          (pesel ? ` | 🪪 ${pesel}` : '');
+        const phone = u.snap_phone ? ` | 📞 ${u.snap_phone}` : '';
+        const pesel = u.snap_pesel ? ` | 🪪 ${u.snap_pesel}` : '';
+        const start = u.started_at ? ` | ▶️ ${u.started_at}` : ' | ▶️ —';
+        const end   = u.ended_at   ? ` | ⏹ ${u.ended_at}`   : ' | ⏹ —';
+        return `${i + 1}. ${name}${phone}${pesel}${start}${end}`;
       }).join('\n')
     : '—';
 

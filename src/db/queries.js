@@ -197,12 +197,31 @@ function leaveShift(shiftId, userId) {
 function getParticipants(shiftId) {
   return getDb().prepare(`
     SELECT u.id, u.username, u.first_name, u.last_name, u.reg_name,
-           sp.snap_name, sp.snap_phone, sp.snap_pesel
+           sp.snap_name, sp.snap_phone, sp.snap_pesel,
+           sp.started_at, sp.ended_at
     FROM shift_participants sp
     JOIN users u ON u.id = sp.user_id
     WHERE sp.shift_id = ? AND sp.status = 'approved'
     ORDER BY sp.joined_at ASC
   `).all(shiftId);
+}
+
+function markShiftStarted(shiftId, userId, time) {
+  getDb().prepare(
+    "UPDATE shift_participants SET started_at = ? WHERE shift_id = ? AND user_id = ? AND status = 'approved'"
+  ).run(time, shiftId, userId);
+}
+
+function markShiftEnded(shiftId, userId, time) {
+  getDb().prepare(
+    "UPDATE shift_participants SET ended_at = ? WHERE shift_id = ? AND user_id = ? AND status = 'approved'"
+  ).run(time, shiftId, userId);
+}
+
+function getParticipantRow(shiftId, userId) {
+  return getDb().prepare(
+    'SELECT * FROM shift_participants WHERE shift_id = ? AND user_id = ?'
+  ).get(shiftId, userId);
 }
 
 function isParticipant(shiftId, userId) {
@@ -275,7 +294,8 @@ module.exports = {
   setGender, getGender, setRegistration, isRegistered, setPriority,
   createShift, getShift, getAllShifts, updateShift, deleteShift, setShiftMessage,
   joinShift, approveParticipant, rejectParticipant, leaveShift,
-  getParticipants, isParticipant, getParticipantStatus,
+  getParticipants, isParticipant, getParticipantStatus, getParticipantRow,
+  markShiftStarted, markShiftEnded,
   addManualParticipant, removeManualParticipant, getManualParticipants, removeTgParticipant,
   getShiftsStartingAt,
   getSetting, setSetting,

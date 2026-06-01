@@ -92,6 +92,8 @@ function migrate(db) {
   if (!spCols.includes('snap_name'))     db.exec('ALTER TABLE shift_participants ADD COLUMN snap_name TEXT');
   if (!spCols.includes('snap_phone'))    db.exec('ALTER TABLE shift_participants ADD COLUMN snap_phone TEXT');
   if (!spCols.includes('snap_pesel'))    db.exec('ALTER TABLE shift_participants ADD COLUMN snap_pesel TEXT');
+  if (!spCols.includes('started_at'))    db.exec('ALTER TABLE shift_participants ADD COLUMN started_at TEXT');
+  if (!spCols.includes('ended_at'))      db.exec('ALTER TABLE shift_participants ADD COLUMN ended_at TEXT');
 }
 
 module.exports = { getDb };
