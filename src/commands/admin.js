@@ -34,7 +34,8 @@ function shiftDetailKeyboard(shiftId) {
         { text: '✏️ Редактировать', callback_data: `ap:edit:${shiftId}` },
         { text: '🗑 Удалить',        callback_data: `ap:del_confirm:${shiftId}` },
       ],
-      [{ text: '⬅️ К списку', callback_data: 'ap:shifts' }],
+      [{ text: '👥 Uczestnícy',      callback_data: `ap:members:${shiftId}` }],
+      [{ text: '⬅️ К списку',        callback_data: 'ap:shifts' }],
     ],
   };
 }

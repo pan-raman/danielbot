@@ -5,6 +5,7 @@ const { Telegraf, Scenes, session } = require('telegraf');
 const { trackUser }             = require('./middleware/trackUser');
 const { notBanned }             = require('./middleware/guards');
 const { createShiftScene, editShiftScene } = require('./scenes/shiftScenes');
+const { manageParticipantsScene, registerParticipantCallbacks } = require('./scenes/participantsScene');
 const { registerAdminCommands } = require('./commands/admin');
 const { registerUserCommands }  = require('./commands/user');
 const { registerCallbacks }     = require('./commands/callbacks');
@@ -20,7 +21,7 @@ const bot = new Telegraf(BOT_TOKEN);
 
 // ── Session + Scenes ─────────────────────────────────────────────────────────
 
-const stage = new Scenes.Stage([createShiftScene, editShiftScene]);
+const stage = new Scenes.Stage([createShiftScene, editShiftScene, manageParticipantsScene]);
 bot.use(session());
 bot.use(stage.middleware());
 
@@ -34,6 +35,7 @@ bot.use(notBanned);
 registerUserCommands(bot);
 registerAdminCommands(bot);
 registerCallbacks(bot);
+registerParticipantCallbacks(bot);
 
 // ── Reminders ─────────────────────────────────────────────────────────────────
 

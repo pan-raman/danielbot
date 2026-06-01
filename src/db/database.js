@@ -56,10 +56,19 @@ function migrate(db) {
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       shift_id   INTEGER NOT NULL,
       user_id    INTEGER NOT NULL,
+      status     TEXT NOT NULL DEFAULT 'approved',
       joined_at  TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(shift_id, user_id),
       FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id)  REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS shift_manual_participants (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      shift_id   INTEGER NOT NULL,
+      name       TEXT NOT NULL,
+      added_by   INTEGER NOT NULL,
+      added_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE
     );
   `);
 
@@ -71,6 +80,9 @@ function migrate(db) {
 
   const userCols = db.pragma('table_info(users)').map(c => c.name);
   if (!userCols.includes('gender')) db.exec('ALTER TABLE users ADD COLUMN gender TEXT');
+
+  const spCols = db.pragma('table_info(shift_participants)').map(c => c.name);
+  if (!spCols.includes('status'))   db.exec("ALTER TABLE shift_participants ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'");
 }
 
 module.exports = { getDb };

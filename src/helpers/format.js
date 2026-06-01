@@ -1,4 +1,4 @@
-const { getParticipants } = require('../db/queries');
+const { getParticipants, getManualParticipants } = require('../db/queries');
 
 const DAYS_PL = ['Nd', 'Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'Sb'];
 
@@ -20,15 +20,18 @@ function userName(user) {
 const GENDER_LABEL = { male: '👨 Tylko mężczyźni', female: '👩 Tylko kobiety', all: '👥 Wszyscy' };
 
 function shiftText(shift) {
-  const participants = getParticipants(shift.id);
-  const filled  = participants.length;
-  const slots   = shift.required;
+  const participants       = getParticipants(shift.id);
+  const manualParticipants = getManualParticipants(shift.id);
+  const filled    = participants.length + manualParticipants.length;
+  const slots     = shift.required;
   const spotsLeft = slots - filled;
 
-  const participantLines = participants.length
-    ? participants.map((u, i) => `  ${i + 1}. ${userName(u)}`).join('\n')
-    : '  —';
+  let num = 1;
+  const tgLines     = participants.map(u => `  ${num++}. ${userName(u)}`);
+  const manualLines = manualParticipants.map(m => `  ${num++}. ${m.name}`);
+  const allLines    = [...tgLines, ...manualLines];
 
+  const participantLines = allLines.length ? allLines.join('\n') : '  —';
   const statusBar = buildStatusBar(filled, slots);
 
   return (

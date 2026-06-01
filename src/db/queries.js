@@ -59,6 +59,15 @@ function getAllUsers() {
   return getDb().prepare('SELECT * FROM users ORDER BY created_at DESC').all();
 }
 
+function getAllAdminIds() {
+  const envAdmins = (process.env.ADMIN_IDS || '')
+    .split(',')
+    .map(s => parseInt(s.trim(), 10))
+    .filter(Boolean);
+  const dbAdmins = getDb().prepare('SELECT id FROM users WHERE is_admin = 1').all().map(r => r.id);
+  return [...new Set([...envAdmins, ...dbAdmins])];
+}
+
 // ── Shifts ─────────────────────────────────────────────────────────────────
 
 function createShift(data) {
@@ -107,19 +116,50 @@ function joinShift(shiftId, userId) {
     if (user.gender !== forGender) return { ok: false, reason: 'wrong_gender' };
   }
 
+  // Check if already has any status (pending, approved, rejected)
+  const existing = db.prepare(
+    'SELECT status FROM shift_participants WHERE shift_id = ? AND user_id = ?'
+  ).get(shiftId, userId);
+
+  if (existing) {
+    if (existing.status === 'rejected') return { ok: false, reason: 'rejected' };
+    return { ok: false, reason: 'already_joined' };
+  }
+
+  // Count only approved participants toward the limit
   const count = db.prepare(
-    'SELECT COUNT(*) AS n FROM shift_participants WHERE shift_id = ?'
+    "SELECT COUNT(*) AS n FROM shift_participants WHERE shift_id = ? AND status = 'approved'"
   ).get(shiftId).n;
   if (count >= shift.required) return { ok: false, reason: 'full' };
 
-  try {
-    db.prepare(
-      'INSERT INTO shift_participants (shift_id, user_id) VALUES (?, ?)'
-    ).run(shiftId, userId);
-    return { ok: true };
-  } catch {
-    return { ok: false, reason: 'already_joined' };
-  }
+  db.prepare(
+    "INSERT INTO shift_participants (shift_id, user_id, status) VALUES (?, ?, 'pending')"
+  ).run(shiftId, userId);
+
+  return { ok: true };
+}
+
+function approveParticipant(shiftId, userId) {
+  const db = getDb();
+  const shift = getShift(shiftId);
+  if (!shift) return { ok: false, reason: 'not_found' };
+
+  // Re-check capacity before approving
+  const count = db.prepare(
+    "SELECT COUNT(*) AS n FROM shift_participants WHERE shift_id = ? AND status = 'approved'"
+  ).get(shiftId).n;
+  if (count >= shift.required) return { ok: false, reason: 'full' };
+
+  db.prepare(
+    "UPDATE shift_participants SET status = 'approved' WHERE shift_id = ? AND user_id = ?"
+  ).run(shiftId, userId);
+  return { ok: true };
+}
+
+function rejectParticipant(shiftId, userId) {
+  getDb().prepare(
+    "UPDATE shift_participants SET status = 'rejected' WHERE shift_id = ? AND user_id = ?"
+  ).run(shiftId, userId);
 }
 
 function leaveShift(shiftId, userId) {
@@ -129,35 +169,67 @@ function leaveShift(shiftId, userId) {
   return result.changes > 0;
 }
 
+// Only approved participants shown in the public post
 function getParticipants(shiftId) {
   return getDb().prepare(`
     SELECT u.id, u.username, u.first_name, u.last_name
     FROM shift_participants sp
     JOIN users u ON u.id = sp.user_id
-    WHERE sp.shift_id = ?
+    WHERE sp.shift_id = ? AND sp.status = 'approved'
     ORDER BY sp.joined_at ASC
   `).all(shiftId);
 }
 
 function isParticipant(shiftId, userId) {
   const row = getDb().prepare(
-    'SELECT 1 FROM shift_participants WHERE shift_id = ? AND user_id = ?'
+    "SELECT 1 FROM shift_participants WHERE shift_id = ? AND user_id = ? AND status = 'approved'"
   ).get(shiftId, userId);
   return !!row;
+}
+
+function getParticipantStatus(shiftId, userId) {
+  const row = getDb().prepare(
+    'SELECT status FROM shift_participants WHERE shift_id = ? AND user_id = ?'
+  ).get(shiftId, userId);
+  return row ? row.status : null;
 }
 
 // ── Upcoming shifts for reminders ──────────────────────────────────────────
 
 function getShiftsStartingAt(targetDatetime) {
-  // targetDatetime: 'YYYY-MM-DD HH:MM'
   const [date, time] = targetDatetime.split(' ');
   return getDb().prepare(`
     SELECT s.*, GROUP_CONCAT(sp.user_id) AS participant_ids
     FROM shifts s
-    LEFT JOIN shift_participants sp ON sp.shift_id = s.id
+    LEFT JOIN shift_participants sp ON sp.shift_id = s.id AND sp.status = 'approved'
     WHERE s.date = ? AND s.start_time = ?
     GROUP BY s.id
   `).all(date, time);
+}
+
+// ── Manual participants ─────────────────────────────────────────────────────
+
+function addManualParticipant(shiftId, name, addedBy) {
+  const result = getDb().prepare(
+    'INSERT INTO shift_manual_participants (shift_id, name, added_by) VALUES (?, ?, ?)'
+  ).run(shiftId, name, addedBy);
+  return result.lastInsertRowid;
+}
+
+function removeManualParticipant(id) {
+  getDb().prepare('DELETE FROM shift_manual_participants WHERE id = ?').run(id);
+}
+
+function getManualParticipants(shiftId) {
+  return getDb().prepare(
+    'SELECT * FROM shift_manual_participants WHERE shift_id = ? ORDER BY added_at ASC'
+  ).all(shiftId);
+}
+
+function removeTgParticipant(shiftId, userId) {
+  getDb().prepare(
+    'DELETE FROM shift_participants WHERE shift_id = ? AND user_id = ?'
+  ).run(shiftId, userId);
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────
@@ -174,10 +246,12 @@ function setSetting(key, value) {
 }
 
 module.exports = {
-  upsertUser, getUser, isAdmin, isBanned, setBanned, setAdmin, getAllUsers,
+  upsertUser, getUser, isAdmin, isBanned, setBanned, setAdmin, getAllUsers, getAllAdminIds,
   setGender, getGender,
   createShift, getShift, getAllShifts, updateShift, deleteShift, setShiftMessage,
-  joinShift, leaveShift, getParticipants, isParticipant,
+  joinShift, approveParticipant, rejectParticipant, leaveShift,
+  getParticipants, isParticipant, getParticipantStatus,
+  addManualParticipant, removeManualParticipant, getManualParticipants, removeTgParticipant,
   getShiftsStartingAt,
   getSetting, setSetting,
 };
