@@ -251,34 +251,30 @@ function registerAdminCommands(bot) {
     const { getAllShifts, getParticipants } = require('../db/queries');
 
     const now = new Date();
-    const nowStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    const nowStr  = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 
     const shifts = getAllShifts();
-    const todayShifts = shifts.filter(s => s.date === dateStr);
 
     let report = `🔍 <b>Reminder debug</b>\n\n`;
-    report += `🕐 Bot time: <b>${nowStr}</b> (${dateStr})\n`;
+    report += `🕐 Bot time: <b>${nowStr}</b>\n`;
+    report += `📅 Today: <b>${dateStr}</b>\n`;
     report += `🌍 TZ: <b>${process.env.TZ || 'not set'}</b>\n\n`;
-    report += `Shifts today: <b>${todayShifts.length}</b>\n`;
+    report += `All shifts in DB: <b>${shifts.length}</b>\n`;
 
-    for (const s of todayShifts) {
+    for (const s of shifts) {
       const p = getParticipants(s.id);
-      report += `\n#${s.id} ${s.location} | start: ${s.start_time} | end: ${s.end_time} | participants: ${p.length}`;
-    }
-
-    if (!todayShifts.length) {
-      report += `\n⚠️ No shifts found for today (${dateStr}).\nCheck that shift date matches today.`;
+      const match = s.date === dateStr ? ' ← TODAY' : '';
+      report += `\n#${s.id} | ${s.date}${match} | ${s.start_time}–${s.end_time} | ${s.location} | ${p.length} participants`;
     }
 
     await ctx.replyWithHTML(report);
 
-    // Also run the check right now
     try {
       await runReminderCheck(bot);
-      await ctx.reply('✅ Reminder check ran. If participants exist and time matches ±1min, messages were sent.');
+      await ctx.reply('✅ Reminder check ran successfully.');
     } catch (e) {
-      await ctx.reply(`❌ Error: ${e.message}`);
+      await ctx.reply(`❌ Error in runReminderCheck: ${e.message}`);
     }
   });
 
