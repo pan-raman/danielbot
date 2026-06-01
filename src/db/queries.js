@@ -218,6 +218,12 @@ function markShiftEnded(shiftId, userId, time) {
   ).run(time, shiftId, userId);
 }
 
+function markNotified(shiftId, userId, field) {
+  getDb().prepare(
+    `UPDATE shift_participants SET ${field} = 1 WHERE shift_id = ? AND user_id = ?`
+  ).run(shiftId, userId);
+}
+
 function getParticipantRow(shiftId, userId) {
   return getDb().prepare(
     'SELECT * FROM shift_participants WHERE shift_id = ? AND user_id = ?'
@@ -295,7 +301,7 @@ module.exports = {
   createShift, getShift, getAllShifts, updateShift, deleteShift, setShiftMessage,
   joinShift, approveParticipant, rejectParticipant, leaveShift,
   getParticipants, isParticipant, getParticipantStatus, getParticipantRow,
-  markShiftStarted, markShiftEnded,
+  markShiftStarted, markShiftEnded, markNotified,
   addManualParticipant, removeManualParticipant, getManualParticipants, removeTgParticipant,
   getShiftsStartingAt,
   getSetting, setSetting,

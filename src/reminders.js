@@ -1,40 +1,51 @@
 const cron = require('node-cron');
-const { getAllShifts, getParticipants, getParticipantRow } = require('./db/queries');
+const { getAllShifts, getParticipants, getParticipantRow, markNotified } = require('./db/queries');
 const { formatDate } = require('./helpers/format');
 
-function padTime(t) {
-  return t.length === 4 ? '0' + t : t;
+// Convert "HH:MM" to total minutes
+function toMins(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
 }
 
-function addMinutes(dateObj, min) {
-  return new Date(dateObj.getTime() + min * 60 * 1000);
+// Current local time in minutes since midnight
+function nowMins() {
+  const d = new Date();
+  return d.getHours() * 60 + d.getMinutes();
 }
 
-function toHHMM(dateObj) {
-  return String(dateObj.getHours()).padStart(2, '0') + ':' + String(dateObj.getMinutes()).padStart(2, '0');
+function todayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
-function toDateStr(dateObj) {
-  const y = dateObj.getFullYear();
-  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const d = String(dateObj.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+function dateStrOffset(minutesAhead) {
+  const d = new Date(Date.now() + minutesAhead * 60 * 1000);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+function timeStrOffset(minutesAhead) {
+  const d = new Date(Date.now() + minutesAhead * 60 * 1000);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+// Check if shift time is within [targetMins-1, targetMins+1] relative to now
+function isWithin(shiftTimeHHMM, offsetMins) {
+  const shiftMins  = toMins(shiftTimeHHMM.slice(0, 5).padStart(5, '0'));
+  const targetMins = nowMins() + offsetMins;
+  return Math.abs(shiftMins - targetMins) <= 1;
 }
 
 function setupReminders(bot) {
   cron.schedule('* * * * *', async () => {
-    const now = new Date();
-
-    const todayDate    = toDateStr(now);
-    const tomorrowDate = toDateStr(addMinutes(now, 24 * 60));
-    const tomorrowTime = toHHMM(addMinutes(now, 24 * 60));
-
-    // Offset targets: minutes from now → label + button type
-    const targets = [
-      { offset: 5,  type: 'pre_start',  label: '5 minut' },
-      { offset: 30, type: 'reminder',   label: '30 minut' },
-      { offset: 60, type: 'reminder',   label: '1 godzinę' },
-    ];
+    const today    = todayStr();
+    const tomorrow = dateStrOffset(24 * 60);
 
     const shifts = getAllShifts();
 
@@ -42,14 +53,14 @@ function setupReminders(bot) {
       const participants = getParticipants(shift.id);
       if (!participants.length) continue;
 
-      const shiftStartTime = padTime(shift.start_time);
-      const shiftEndTime   = padTime(shift.end_time);
+      const onToday    = shift.date === today;
+      const onTomorrow = shift.date === tomorrow;
 
-      // ── 5 min before START → send "Start" button ──────────────────────
-      if (shift.date === todayDate && toHHMM(addMinutes(now, 5)) === shiftStartTime) {
+      // ── 5 min before START ────────────────────────────────────────────
+      if (onToday && isWithin(shift.start_time, 5)) {
         for (const user of participants) {
           const row = getParticipantRow(shift.id, user.id);
-          if (row?.started_at) continue; // already started
+          if (!row || row.notified_start) continue;
 
           try {
             await bot.telegram.sendMessage(
@@ -67,15 +78,16 @@ function setupReminders(bot) {
                 },
               }
             );
+            markNotified(shift.id, user.id, 'notified_start');
           } catch {}
         }
       }
 
-      // ── 5 min before END → send "End" button ──────────────────────────
-      if (shift.date === todayDate && toHHMM(addMinutes(now, 5)) === shiftEndTime) {
+      // ── 5 min before END ──────────────────────────────────────────────
+      if (onToday && isWithin(shift.end_time, 5)) {
         for (const user of participants) {
           const row = getParticipantRow(shift.id, user.id);
-          if (row?.ended_at) continue; // already ended
+          if (!row || row.notified_end) continue;
 
           try {
             await bot.telegram.sendMessage(
@@ -93,46 +105,78 @@ function setupReminders(bot) {
                 },
               }
             );
+            markNotified(shift.id, user.id, 'notified_end');
           } catch {}
         }
       }
 
-      // ── 30 / 60 min before START → plain reminder ─────────────────────
-      for (const t of [30, 60]) {
-        if (shift.date === todayDate && toHHMM(addMinutes(now, t)) === shiftStartTime) {
-          for (const user of participants) {
-            try {
-              await bot.telegram.sendMessage(
-                user.id,
-                `⏰ <b>Przypomnienie!</b>\n\n` +
-                `Twoja zmiana zaczyna się za <b>${t} minut</b>!\n` +
-                `📅 ${formatDate(shift.date)}\n` +
-                `📍 ${shift.location}\n` +
-                `🕐 ${shift.start_time} – ${shift.end_time}` +
-                (shift.zbiorka ? `\n📌 Zbiórka: ${shift.zbiorka}` : ''),
-                { parse_mode: 'HTML' }
-              );
-            } catch {}
-          }
-        }
-      }
-
-      // ── 24h before START ──────────────────────────────────────────────
-      if (shift.date === tomorrowDate && tomorrowTime === shiftStartTime) {
+      // ── 30 min before START ───────────────────────────────────────────
+      if (onToday && isWithin(shift.start_time, 30)) {
         for (const user of participants) {
           try {
             await bot.telegram.sendMessage(
               user.id,
-              `📅 <b>Jutro masz zmianę!</b>\n\n` +
+              `⏰ <b>Przypomnienie!</b>\n\n` +
+              `Twoja zmiana zaczyna się za <b>30 minut</b>!\n` +
+              `📅 ${formatDate(shift.date)}\n` +
               `📍 ${shift.location}\n` +
-              `🕐 ${shift.start_time} – ${shift.end_time}\n` +
-              `👔 ${shift.dress_code}` +
-              (shift.zbiorka         ? `\n📌 Zbiórka: ${shift.zbiorka}` : '') +
-              (shift.zbiorka_contact ? `\n👤 Kontakt: ${shift.zbiorka_contact}` : ''),
+              `🕐 ${shift.start_time} – ${shift.end_time}` +
+              (shift.zbiorka ? `\n📌 Zbiórka: ${shift.zbiorka}` : ''),
               { parse_mode: 'HTML' }
             );
           } catch {}
         }
+      }
+
+      // ── 60 min before START ───────────────────────────────────────────
+      if (onToday && isWithin(shift.start_time, 60)) {
+        for (const user of participants) {
+          try {
+            await bot.telegram.sendMessage(
+              user.id,
+              `⏰ <b>Przypomnienie!</b>\n\n` +
+              `Twoja zmiana zaczyna się za <b>1 godzinę</b>!\n` +
+              `📅 ${formatDate(shift.date)}\n` +
+              `📍 ${shift.location}\n` +
+              `🕐 ${shift.start_time} – ${shift.end_time}` +
+              (shift.zbiorka ? `\n📌 Zbiórka: ${shift.zbiorka}` : ''),
+              { parse_mode: 'HTML' }
+            );
+          } catch {}
+        }
+      }
+
+      // ── 24h before START ──────────────────────────────────────────────
+      if (onTomorrow && isWithin(shift.start_time, -(24 * 60 - nowMins()) + nowMins())) {
+        // simpler: check if tomorrow's shift time matches current time
+      }
+    }
+  });
+
+  // Separate cron for 24h reminder — runs once per minute but checks date+time match
+  cron.schedule('* * * * *', async () => {
+    const in24hDate = dateStrOffset(24 * 60);
+    const in24hTime = timeStrOffset(24 * 60);
+
+    const shifts = getAllShifts();
+    for (const shift of shifts) {
+      if (shift.date !== in24hDate) continue;
+      if (!isWithin(shift.start_time, 24 * 60)) continue;
+
+      const participants = getParticipants(shift.id);
+      for (const user of participants) {
+        try {
+          await bot.telegram.sendMessage(
+            user.id,
+            `📅 <b>Jutro masz zmianę!</b>\n\n` +
+            `📍 ${shift.location}\n` +
+            `🕐 ${shift.start_time} – ${shift.end_time}\n` +
+            `👔 ${shift.dress_code}` +
+            (shift.zbiorka         ? `\n📌 Zbiórka: ${shift.zbiorka}` : '') +
+            (shift.zbiorka_contact ? `\n👤 Kontakt: ${shift.zbiorka_contact}` : ''),
+            { parse_mode: 'HTML' }
+          );
+        } catch {}
       }
     }
   });
