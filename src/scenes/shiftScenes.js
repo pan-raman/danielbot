@@ -63,7 +63,8 @@ function parseDate(raw) {
     const now = new Date();
     year = now.getFullYear();
     const candidate = new Date(year, parseInt(month, 10) - 1, parseInt(day, 10));
-    if (candidate < now) year += 1;
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (candidate < todayMidnight) year += 1;
   } else if (full) {
     [, day, month, year] = full;
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
