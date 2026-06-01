@@ -1,7 +1,7 @@
 const {
   getAllShifts, getShift, deleteShift, getParticipants,
   setShiftMessage, getAllUsers, setBanned, setAdmin,
-  getSetting, setSetting, getUser, setPriority,
+  getSetting, setSetting, getUser, setPriority, setRole,
 } = require('../db/queries');
 const { shiftText, shiftKeyboard, userName, formatDate } = require('../helpers/format');
 const { adminOnly } = require('../middleware/guards');
@@ -63,7 +63,20 @@ function userPriorityKeyboard(uid, selected) {
         callback_data: `ap:uprio:${uid}:${p}`,
       })),
       [{ text: '✅ Zapisz', callback_data: `ap:uprio_done:${uid}` }],
-      [{ text: '⬅️ Wróć',  callback_data: 'ap:users' }],
+      [{ text: '⬅️ Wróć',  callback_data: `ap:user:${uid}` }],
+    ],
+  };
+}
+
+function userRoleKeyboard(uid, selected) {
+  return {
+    inline_keyboard: [
+      ['Kelner', 'Barman', 'Kuchnia'].map(r => ({
+        text: selected.includes(r) ? `✅ ${r}` : r,
+        callback_data: `ap:urole:${uid}:${r}`,
+      })),
+      [{ text: '✅ Zapisz', callback_data: `ap:urole_done:${uid}` }],
+      [{ text: '⬅️ Wróć',  callback_data: `ap:user:${uid}` }],
     ],
   };
 }
@@ -222,36 +235,53 @@ function registerAdminCommands(bot) {
     const user = getUser(uid);
     if (!user) { await ctx.answerCbQuery('Nie znaleziono'); return; }
 
-    const current = user.priority ? user.priority.split(',') : [];
+    const currentPrio = user.priority ? user.priority.split(',') : [];
+    const currentRole = user.role || '—';
 
     const text =
       `👤 <b>${user.reg_name || userName(user)}</b>\n` +
       `📞 ${user.reg_phone || '—'}\n` +
       `🪪 ${user.reg_pesel || '—'}\n` +
-      `Aktualny priorytet: <b>${current.length ? current.join(', ') : '—'}</b>\n\n` +
-      `Wybierz priorytety (można wybrać kilka):`;
+      `⭐ Priorytet: <b>${currentPrio.length ? currentPrio.join(', ') : '—'}</b>\n` +
+      `🍽 Rola: <b>${currentRole}</b>\n\n` +
+      `Wybierz co chcesz zmienić:`;
 
     await ctx.editMessageText(text, {
       parse_mode: 'HTML',
-      reply_markup: userPriorityKeyboard(uid, current),
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '⭐ Zmień priorytet', callback_data: `ap:editprio:${uid}` }],
+          [{ text: '🍽 Zmień rolę',      callback_data: `ap:editrole:${uid}` }],
+          [{ text: '⬅️ Wróć',            callback_data: 'ap:users'           }],
+        ],
+      },
     });
     await ctx.answerCbQuery();
   });
 
-  bot.action(/^ap:uprio:(\d+):([ABC])$/, adminOnly, async (ctx) => {
-    const uid = parseInt(ctx.match[1], 10);
-    const p   = ctx.match[2];
+  // Priority edit
+  bot.action(/^ap:editprio:(\d+)$/, adminOnly, async (ctx) => {
+    const uid  = parseInt(ctx.match[1], 10);
     const user = getUser(uid);
     if (!user) { await ctx.answerCbQuery(); return; }
+    const current = user.priority ? user.priority.split(',') : [];
+    await ctx.editMessageText(
+      `⭐ <b>Priorytet</b> — ${user.reg_name || userName(user)}\n\nAktualny: <b>${current.join(', ') || '—'}</b>\n\nWybierz (można kilka):`,
+      { parse_mode: 'HTML', reply_markup: userPriorityKeyboard(uid, current) }
+    );
+    await ctx.answerCbQuery();
+  });
 
+  bot.action(/^ap:uprio:(\d+):([ABC])$/, adminOnly, async (ctx) => {
+    const uid  = parseInt(ctx.match[1], 10);
+    const p    = ctx.match[2];
+    const user = getUser(uid);
+    if (!user) { await ctx.answerCbQuery(); return; }
     const current = user.priority ? user.priority.split(',') : [];
     const idx = current.indexOf(p);
     if (idx === -1) current.push(p); else current.splice(idx, 1);
     current.sort();
-
     setPriority(uid, current.length ? current.join(',') : null);
-    const updated = getUser(uid);
-
     await ctx.editMessageReplyMarkup(userPriorityKeyboard(uid, current));
     await ctx.answerCbQuery(`${p} ${idx === -1 ? 'dodano' : 'usunięto'}`);
   });
@@ -259,10 +289,45 @@ function registerAdminCommands(bot) {
   bot.action(/^ap:uprio_done:(\d+)$/, adminOnly, async (ctx) => {
     const uid  = parseInt(ctx.match[1], 10);
     const user = getUser(uid);
-    const prio = user?.priority || '—';
     await ctx.editMessageText(
-      `✅ Priorytet zapisany: <b>${prio}</b>\n👤 ${user?.reg_name || userName(user)}`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '⬅️ Do listy', callback_data: 'ap:users' }]] } }
+      `✅ Priorytet zapisany: <b>${user?.priority || '—'}</b>`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '⬅️ Do pracownika', callback_data: `ap:user:${uid}` }]] } }
+    );
+    await ctx.answerCbQuery('✅ Zapisano');
+  });
+
+  // Role edit
+  bot.action(/^ap:editrole:(\d+)$/, adminOnly, async (ctx) => {
+    const uid  = parseInt(ctx.match[1], 10);
+    const user = getUser(uid);
+    if (!user) { await ctx.answerCbQuery(); return; }
+    const current = user.role ? user.role.split(',') : [];
+    await ctx.editMessageText(
+      `🍽 <b>Rola</b> — ${user.reg_name || userName(user)}\n\nAktualna: <b>${current.join(', ') || '—'}</b>\n\nWybierz (można kilka):`,
+      { parse_mode: 'HTML', reply_markup: userRoleKeyboard(uid, current) }
+    );
+    await ctx.answerCbQuery();
+  });
+
+  bot.action(/^ap:urole:(\d+):(Kelner|Barman|Kuchnia)$/, adminOnly, async (ctx) => {
+    const uid  = parseInt(ctx.match[1], 10);
+    const r    = ctx.match[2];
+    const user = getUser(uid);
+    if (!user) { await ctx.answerCbQuery(); return; }
+    const current = user.role ? user.role.split(',') : [];
+    const idx = current.indexOf(r);
+    if (idx === -1) current.push(r); else current.splice(idx, 1);
+    setRole(uid, current.length ? current.join(',') : null);
+    await ctx.editMessageReplyMarkup(userRoleKeyboard(uid, current));
+    await ctx.answerCbQuery(`${r} ${idx === -1 ? 'dodano' : 'usunięto'}`);
+  });
+
+  bot.action(/^ap:urole_done:(\d+)$/, adminOnly, async (ctx) => {
+    const uid  = parseInt(ctx.match[1], 10);
+    const user = getUser(uid);
+    await ctx.editMessageText(
+      `✅ Rola zapisana: <b>${user?.role || '—'}</b>`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '⬅️ Do pracownika', callback_data: `ap:user:${uid}` }]] } }
     );
     await ctx.answerCbQuery('✅ Zapisano');
   });

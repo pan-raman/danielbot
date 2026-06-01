@@ -296,10 +296,7 @@ function registerReportCommand(bot) {
       if (m <= 0) { m += 12; y -= 1; }
       rows.push([
         { text: `${monthName(m)} ${y} — Pracownicy`, callback_data: `rpt:w:${y}:${m}` },
-        { text: `${monthName(m)} ${y} — Klienci`,    callback_data: `rpt:c:${y}:${m}` },
-      ]);
-      rows.push([
-        { text: `📥 Excel ${monthName(m)} ${y}`, callback_data: `rpt:xls:${y}:${m}` },
+        { text: `📥 Excel ${monthName(m)} ${y}`,     callback_data: `rpt:xls:${y}:${m}` },
       ]);
     }
 
@@ -308,22 +305,20 @@ function registerReportCommand(bot) {
     });
   });
 
-  // Text reports
-  bot.action(/^rpt:(w|c):(\d{4}):(\d{1,2})$/, async (ctx) => {
+  // Text report — workers only
+  bot.action(/^rpt:w:(\d{4}):(\d{1,2})$/, async (ctx) => {
     if (!isAdmin(ctx.from.id)) return ctx.answerCbQuery('⛔ Admin only.');
     await ctx.answerCbQuery();
 
-    const type  = ctx.match[1];
-    const year  = parseInt(ctx.match[2], 10);
-    const month = parseInt(ctx.match[3], 10);
+    const year  = parseInt(ctx.match[1], 10);
+    const month = parseInt(ctx.match[2], 10);
 
-    const text = type === 'w' ? workerReport(year, month) : clientReport(year, month);
+    const text = workerReport(year, month);
     const chunks = splitMessage(text);
     for (const chunk of chunks) {
       await ctx.replyWithHTML(chunk);
     }
 
-    // Offer Excel download
     await ctx.reply('📥 Pobierz raport jako Excel:', {
       reply_markup: { inline_keyboard: [[
         { text: '📥 Pobierz Excel', callback_data: `rpt:xls:${year}:${month}` },

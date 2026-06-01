@@ -63,6 +63,10 @@ function setPriority(userId, priority) {
   getDb().prepare('UPDATE users SET priority = ? WHERE id = ?').run(priority, userId);
 }
 
+function setRole(userId, role) {
+  getDb().prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
+}
+
 function setRegistration(userId, { reg_name, reg_phone, reg_pesel, gender }) {
   getDb().prepare(
     'UPDATE users SET reg_name = ?, reg_phone = ?, reg_pesel = ?, gender = ? WHERE id = ?'
@@ -88,9 +92,9 @@ function getAllAdminIds() {
 function createShift(data) {
   const db = getDb();
   const result = db.prepare(`
-    INSERT INTO shifts (date, location, dress_code, start_time, end_time, required, lista, zbiorka, zbiorka_contact, for_gender, priority_filter, stawka, created_by)
-    VALUES (@date, @location, @dress_code, @start_time, @end_time, @required, @lista, @zbiorka, @zbiorka_contact, @for_gender, @priority_filter, @stawka, @created_by)
-  `).run({ lista: null, zbiorka: null, zbiorka_contact: null, for_gender: 'all', priority_filter: null, stawka: null, ...data });
+    INSERT INTO shifts (date, location, dress_code, start_time, end_time, required, lista, zbiorka, zbiorka_contact, for_gender, priority_filter, role_filter, stawka, created_by)
+    VALUES (@date, @location, @dress_code, @start_time, @end_time, @required, @lista, @zbiorka, @zbiorka_contact, @for_gender, @priority_filter, @role_filter, @stawka, @created_by)
+  `).run({ lista: null, zbiorka: null, zbiorka_contact: null, for_gender: 'all', priority_filter: null, role_filter: null, stawka: null, ...data });
   return result.lastInsertRowid;
 }
 
@@ -134,10 +138,20 @@ function joinShift(shiftId, userId) {
 
   // Priority check
   if (shift.priority_filter) {
-    const allowed      = shift.priority_filter.split(',');
+    const allowed        = shift.priority_filter.split(',');
     const userPriorities = user?.priority ? user.priority.split(',') : [];
-    const hasMatch     = userPriorities.some(p => allowed.includes(p));
-    if (!hasMatch) return { ok: false, reason: 'wrong_priority' };
+    if (!userPriorities.some(p => allowed.includes(p))) {
+      return { ok: false, reason: 'wrong_priority' };
+    }
+  }
+
+  // Role check
+  if (shift.role_filter) {
+    const allowed    = shift.role_filter.split(',');
+    const userRoles  = user?.role ? user.role.split(',') : [];
+    if (!userRoles.some(r => allowed.includes(r))) {
+      return { ok: false, reason: 'wrong_role' };
+    }
   }
 
   // Check if already has any status (pending, approved, rejected)
@@ -297,7 +311,7 @@ function setSetting(key, value) {
 
 module.exports = {
   upsertUser, getUser, isAdmin, isBanned, setBanned, setAdmin, getAllUsers, getAllAdminIds,
-  setGender, getGender, setRegistration, isRegistered, setPriority,
+  setGender, getGender, setRegistration, isRegistered, setPriority, setRole,
   createShift, getShift, getAllShifts, updateShift, deleteShift, setShiftMessage,
   joinShift, approveParticipant, rejectParticipant, leaveShift,
   getParticipants, isParticipant, getParticipantStatus, getParticipantRow,

@@ -42,9 +42,10 @@ function shiftText(shift) {
     `📍 <b>${shift.location}${shift.priority_filter ? ` (${shift.priority_filter})` : ''}</b>\n` +
     `👔 ${shift.dress_code}\n` +
     `🕐 ${shift.start_time} – ${shift.end_time}\n` +
-    (shift.zbiorka    ? `📌 Zbiórka: ${shift.zbiorka}\n` : '') +
+    (shift.zbiorka         ? `📌 Zbiórka: ${shift.zbiorka}\n` : '') +
     (shift.zbiorka_contact ? `👤 Kontakt: ${shift.zbiorka_contact}\n` : '') +
-    (shift.lista      ? `📋 Lista do wypisu: ${shift.lista}\n` : '') +
+    (shift.lista           ? `📋 Lista do wypisu: ${shift.lista}\n` : '') +
+    (shift.role_filter     ? `🍽 Role: ${shift.role_filter}\n` : '') +
     (shift.for_gender && shift.for_gender !== 'all'
       ? `${GENDER_LABEL[shift.for_gender]}\n`
       : '') +

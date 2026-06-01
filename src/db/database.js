@@ -80,6 +80,7 @@ function migrate(db) {
   if (!cols.includes('zbiorka_contact'))   db.exec('ALTER TABLE shifts ADD COLUMN zbiorka_contact TEXT');
   if (!cols.includes('priority_filter'))   db.exec('ALTER TABLE shifts ADD COLUMN priority_filter TEXT');
   if (!cols.includes('stawka'))            db.exec('ALTER TABLE shifts ADD COLUMN stawka REAL');
+  if (!cols.includes('role_filter'))       db.exec('ALTER TABLE shifts ADD COLUMN role_filter TEXT');
 
   const userCols = db.pragma('table_info(users)').map(c => c.name);
   if (!userCols.includes('gender'))        db.exec('ALTER TABLE users ADD COLUMN gender TEXT');
@@ -87,6 +88,7 @@ function migrate(db) {
   if (!userCols.includes('reg_phone'))     db.exec('ALTER TABLE users ADD COLUMN reg_phone TEXT');
   if (!userCols.includes('reg_pesel'))     db.exec('ALTER TABLE users ADD COLUMN reg_pesel TEXT');
   if (!userCols.includes('priority'))      db.exec('ALTER TABLE users ADD COLUMN priority TEXT');
+  if (!userCols.includes('role'))          db.exec('ALTER TABLE users ADD COLUMN role TEXT');
 
   const spCols = db.pragma('table_info(shift_participants)').map(c => c.name);
   if (!spCols.includes('status'))        db.exec("ALTER TABLE shift_participants ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'");

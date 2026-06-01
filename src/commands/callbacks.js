@@ -96,6 +96,8 @@ function registerCallbacks(bot) {
       await ctx.answerCbQuery('⛔ Admin odrzucił Twoje zgłoszenie na tę zmianę.', { show_alert: true });
     } else if (result.reason === 'full') {
       await ctx.answerCbQuery('🔴 Zmiana jest już pełna.', { show_alert: true });
+    } else if (result.reason === 'wrong_role') {
+      await ctx.answerCbQuery('⛔ Ta zmiana wymaga innej roli (Kelner/Barman/Kuchnia).', { show_alert: true });
     } else if (result.reason === 'wrong_priority') {
       await ctx.answerCbQuery('⛔ Twój priorytet nie pozwala na zapis na tę zmianę.', { show_alert: true });
     } else if (result.reason === 'wrong_gender') {

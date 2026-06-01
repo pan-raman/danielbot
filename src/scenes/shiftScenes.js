@@ -15,7 +15,7 @@ const LISTA_KEYBOARD = {
 };
 
 const ZBIORKA_KEYBOARD = {
-  inline_keyboard: [[{ text: 'Pomiń Zbiórka', callback_data: 'zbiorka:skip' }]],
+  inline_keyboard: [[{ text: 'Pomiń', callback_data: 'zbiorka:skip' }]],
 };
 
 const GENDER_KEYBOARD = {
@@ -24,14 +24,24 @@ const GENDER_KEYBOARD = {
       { text: '👨 Tylko mężczyźni', callback_data: 'fg:male'   },
       { text: '👩 Tylko kobiety',   callback_data: 'fg:female' },
     ],
-    [{ text: '👥 Wszyscy',          callback_data: 'fg:all'    }],
+    [{ text: '👥 Wszyscy', callback_data: 'fg:all' }],
   ],
 };
+
+const DRESS_CODE_KEYBOARD = {
+  inline_keyboard: [
+    [{ text: 'Biała koszula',           callback_data: 'dc:Biała koszula'           }],
+    [{ text: 'Czarna koszula',          callback_data: 'dc:Czarna koszula'          }],
+    [{ text: 'Czarna koszula, zapaska', callback_data: 'dc:Czarna koszula, zapaska' }],
+    [{ text: 'Biała koszula, zapaska',  callback_data: 'dc:Biała koszula, zapaska'  }],
+    [{ text: '✏️ Wpisz własny',         callback_data: 'dc:custom'                  }],
+  ],
+};
+
 function priorityKeyboard(selected) {
-  const priorities = ['A', 'B', 'C'];
   return {
     inline_keyboard: [
-      priorities.map(p => ({
+      ['A', 'B', 'C'].map(p => ({
         text: selected.includes(p) ? `✅ ${p}` : p,
         callback_data: `prio:${p}`,
       })),
@@ -40,30 +50,28 @@ function priorityKeyboard(selected) {
   };
 }
 
-// Steps that use plain text input (wizard-driven)
-// lista and zbiorka are handled separately (inline button + text)
-
-const STEPS = [
-  { key: 'date',       prompt: '📅 Podaj <b>datę</b> zmiany w formacie DD.MM (np. 25.12):' },
-  { key: 'location',   prompt: '📍 Podaj <b>miejsce</b>:' },
-  { key: 'dress_code', prompt: '👔 Podaj <b>dress code</b>:' },
-  { key: 'start_time', prompt: '🕐 Podaj <b>godzinę rozpoczęcia</b> (GG:MM):' },
-  { key: 'end_time',   prompt: '🕑 Podaj <b>godzinę zakończenia</b> (GG:MM):' },
-  { key: 'required',   prompt: '👥 Ile osób jest <b>wymaganych</b>? (liczba):' },
-  { key: 'stawka',     prompt: '💰 Podaj <b>stawkę godzinową</b> (np. 25.50) lub pomiń /skip:' },
-];
+function roleKeyboard(selected) {
+  return {
+    inline_keyboard: [
+      ['Kelner', 'Barman', 'Kuchnia'].map(r => ({
+        text: selected.includes(r) ? `✅ ${r}` : r,
+        callback_data: `role:${r}`,
+      })),
+      [{ text: '➡️ Wszyscy role', callback_data: 'role:done' }],
+    ],
+  };
+}
 
 function parseDate(raw) {
   const short = raw.match(/^(\d{1,2})\.(\d{1,2})$/);
   const full  = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-
   let day, month, year;
 
   if (short) {
     [, day, month] = short;
     const now = new Date();
     year = now.getFullYear();
-    const candidate = new Date(year, parseInt(month, 10) - 1, parseInt(day, 10));
+    const candidate    = new Date(year, parseInt(month, 10) - 1, parseInt(day, 10));
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     if (candidate < todayMidnight) year += 1;
   } else if (full) {
@@ -87,61 +95,110 @@ function parseTime(raw) {
 }
 
 // ── Create Shift Scene ───────────────────────────────────────────────────────
+// Steps (each wizard step handles ONE piece of input):
+//  0 → show date prompt
+//  1 → receive date, show location prompt
+//  2 → receive location, show dress_code buttons
+//  3 → receive dress_code (button or custom text), show start_time prompt
+//  4 → receive start_time, show end_time prompt
+//  5 → receive end_time, show required prompt
+//  6 → receive required, show stawka prompt
+//  7 → receive stawka, show lista buttons
+//  8 → receive lista, show zbiorka prompt
+//  9 → receive zbiorka (text or skip), show zbiorka_contact (or jump to gender)
+// 10 → receive zbiorka_contact, show gender buttons
+// 11 → receive gender, show priority buttons (multi-select, stays until done)
+// 12 → receive priority:done, show role buttons (multi-select, stays until done)
+// 13 → receive role:done, save & post
 
 const createShiftScene = new Scenes.WizardScene(
   'create_shift',
 
-  // Step 0 – ask date
+  // Step 0 – date
   async (ctx) => {
     ctx.scene.state.data = {};
-    await ctx.replyWithHTML(
-      '🆕 <b>Nowa zmiana</b>\n\nWypełniamy szczegóły krok po kroku.\n\n' +
-      STEPS[0].prompt +
-      '\n\n/cancel — anuluj'
-    );
+    ctx.scene.state.waitingDcCustom = false;
+    await ctx.replyWithHTML('🆕 <b>Nowa zmiana</b>\n\n📅 Podaj <b>datę</b> (DD.MM):\n\n/cancel — anuluj');
     return ctx.wizard.next();
   },
 
-  // Steps 1-5 – text fields
-  ...STEPS.slice(1).map((step, i) => async (ctx) => {
+  // Step 1 – receive date, ask location
+  async (ctx) => {
     if (!ctx.message?.text) return;
-    const prevKey = STEPS[i].key;
-    const raw = ctx.message.text.trim();
-
-    if (prevKey === 'date') {
-      const parsed = parseDate(raw);
-      if (!parsed) return ctx.replyWithHTML('⚠️ Nieprawidłowa data. Spróbuj <code>25.12</code>');
-      ctx.scene.state.data[prevKey] = parsed;
-    } else if (prevKey === 'start_time' || prevKey === 'end_time') {
-      const parsed = parseTime(raw);
-      if (!parsed) return ctx.replyWithHTML('⚠️ Nieprawidłowy czas. Użyj formatu GG:MM.');
-      ctx.scene.state.data[prevKey] = parsed;
-    } else {
-      ctx.scene.state.data[prevKey] = raw;
-    }
-
-    await ctx.replyWithHTML(step.prompt);
+    const parsed = parseDate(ctx.message.text.trim());
+    if (!parsed) return ctx.replyWithHTML('⚠️ Nieprawidłowa data. Spróbuj <code>25.12</code>');
+    ctx.scene.state.data.date = parsed;
+    await ctx.replyWithHTML('📍 Podaj <b>miejsce</b>:');
     return ctx.wizard.next();
-  }),
+  },
 
-  // Step 6 – validate required, ask stawka
+  // Step 2 – receive location, show dress_code buttons
+  async (ctx) => {
+    if (!ctx.message?.text) return;
+    ctx.scene.state.data.location = ctx.message.text.trim();
+    await ctx.replyWithHTML('👔 Wybierz <b>dress code</b>:', { reply_markup: DRESS_CODE_KEYBOARD });
+    return ctx.wizard.next();
+  },
+
+  // Step 3 – receive dress_code (button or custom text), ask start_time
+  async (ctx) => {
+    if (ctx.scene.state.waitingDcCustom) {
+      // Waiting for custom text input
+      if (!ctx.message?.text) return;
+      ctx.scene.state.data.dress_code = ctx.message.text.trim();
+      ctx.scene.state.waitingDcCustom = false;
+    } else if (ctx.callbackQuery?.data?.startsWith('dc:')) {
+      const val = ctx.callbackQuery.data.replace('dc:', '');
+      await ctx.answerCbQuery();
+      if (val === 'custom') {
+        ctx.scene.state.waitingDcCustom = true;
+        await ctx.reply('Wpisz własny dress code:');
+        return; // stay on this step
+      }
+      ctx.scene.state.data.dress_code = val;
+    } else {
+      return;
+    }
+    await ctx.replyWithHTML('🕐 Podaj <b>godzinę rozpoczęcia</b> (GG:MM):');
+    return ctx.wizard.next();
+  },
+
+  // Step 4 – receive start_time, ask end_time
+  async (ctx) => {
+    if (!ctx.message?.text) return;
+    const parsed = parseTime(ctx.message.text.trim());
+    if (!parsed) return ctx.replyWithHTML('⚠️ Nieprawidłowy czas. Użyj formatu GG:MM.');
+    ctx.scene.state.data.start_time = parsed;
+    await ctx.replyWithHTML('🕑 Podaj <b>godzinę zakończenia</b> (GG:MM):');
+    return ctx.wizard.next();
+  },
+
+  // Step 5 – receive end_time, ask required
+  async (ctx) => {
+    if (!ctx.message?.text) return;
+    const parsed = parseTime(ctx.message.text.trim());
+    if (!parsed) return ctx.replyWithHTML('⚠️ Nieprawidłowy czas. Użyj formatu GG:MM.');
+    ctx.scene.state.data.end_time = parsed;
+    await ctx.replyWithHTML('👥 Ile osób jest <b>wymaganych</b>? (liczba):');
+    return ctx.wizard.next();
+  },
+
+  // Step 6 – receive required, ask stawka
   async (ctx) => {
     if (!ctx.message?.text) return;
     const n = parseInt(ctx.message.text.trim(), 10);
     if (isNaN(n) || n < 1) return ctx.reply('⚠️ Podaj prawidłową liczbę (minimum 1).');
     ctx.scene.state.data.required = n;
-
     await ctx.replyWithHTML(
       '💰 Podaj <b>stawkę godzinową</b> (zł, np. <code>25.50</code>)\n\nlub wyślij /skip aby pominąć:'
     );
     return ctx.wizard.next();
   },
 
-  // Step 7 – receive stawka (or skip), ask lista
+  // Step 7 – receive stawka, show lista buttons
   async (ctx) => {
     if (!ctx.message?.text) return;
     const raw = ctx.message.text.trim();
-
     if (raw === '/skip') {
       ctx.scene.state.data.stawka = null;
     } else {
@@ -149,46 +206,39 @@ const createShiftScene = new Scenes.WizardScene(
       if (isNaN(val) || val < 0) return ctx.reply('⚠️ Nieprawidłowa stawka. Podaj liczbę (np. 25.50) lub /skip.');
       ctx.scene.state.data.stawka = val;
     }
-
     await ctx.replyWithHTML('📋 Wybierz <b>Lista do wypisu</b>:', { reply_markup: LISTA_KEYBOARD });
     return ctx.wizard.next();
   },
 
-  // Step 7 – receive lista (button), ask zbiorka
+  // Step 8 – receive lista, ask zbiorka
   async (ctx) => {
     if (!ctx.callbackQuery?.data?.startsWith('lista:')) return;
-    const lista = ctx.callbackQuery.data.replace('lista:', '');
+    ctx.scene.state.data.lista = ctx.callbackQuery.data.replace('lista:', '');
     await ctx.answerCbQuery();
-    ctx.scene.state.data.lista = lista;
-
     await ctx.replyWithHTML('📍 Podaj <b>Zbiórka</b> (miejsce i czas) lub pomiń:', { reply_markup: ZBIORKA_KEYBOARD });
     return ctx.wizard.next();
   },
 
-  // Step 8 – receive zbiorka (text or skip), ask zbiorka_contact
+  // Step 9 – receive zbiorka, ask zbiorka_contact (or skip to gender)
   async (ctx) => {
     if (ctx.callbackQuery?.data === 'zbiorka:skip') {
       await ctx.answerCbQuery();
       ctx.scene.state.data.zbiorka         = null;
       ctx.scene.state.data.zbiorka_contact = null;
       await ctx.replyWithHTML('👥 Kto może zapisać się na tę zmianę?', { reply_markup: GENDER_KEYBOARD });
-      return ctx.wizard.next();
-    } else if (ctx.message?.text) {
-      ctx.scene.state.data.zbiorka = ctx.message.text.trim();
-    } else {
+      ctx.wizard.selectStep(11); // jump to gender-receive step
       return;
     }
-
+    if (!ctx.message?.text) return;
+    ctx.scene.state.data.zbiorka = ctx.message.text.trim();
     await ctx.replyWithHTML(
-      '👤 Podaj osobę kontaktową dla Zbiórka\n' +
-      '(imię, nazwisko i telefon — np. <code>Jan Kowalski +48 600 100 200</code>)\n\n' +
-      'lub pomiń:',
+      '👤 Podaj <b>osobę kontaktową</b> dla Zbiórka\n(np. <code>Jan Kowalski +48 600 100 200</code>)\n\nlub pomiń:',
       { reply_markup: ZBIORKA_KEYBOARD }
     );
     return ctx.wizard.next();
   },
 
-  // Step 9 – receive zbiorka_contact (text or skip), ask for_gender
+  // Step 10 – receive zbiorka_contact, show gender
   async (ctx) => {
     if (ctx.callbackQuery?.data === 'zbiorka:skip') {
       await ctx.answerCbQuery();
@@ -198,52 +248,73 @@ const createShiftScene = new Scenes.WizardScene(
     } else {
       return;
     }
-
     await ctx.replyWithHTML('👥 Kto może zapisać się na tę zmianę?', { reply_markup: GENDER_KEYBOARD });
     return ctx.wizard.next();
   },
 
-  // Step 9 – receive for_gender, ask priority filter
+  // Step 11 – receive gender, show priority (multi-select)
   async (ctx) => {
     if (!ctx.callbackQuery?.data?.startsWith('fg:')) return;
-    const forGender = ctx.callbackQuery.data.replace('fg:', '');
+    ctx.scene.state.data.for_gender = ctx.callbackQuery.data.replace('fg:', '');
     await ctx.answerCbQuery();
-    ctx.scene.state.data.for_gender = forGender;
     ctx.scene.state.selectedPriorities = [];
-
     await ctx.replyWithHTML(
-      '⭐ Wybierz wymagany <b>priorytet</b> pracowników\n' +
-      '(można wybrać kilka, naciśnij ➡️ aby pominąć / zatwierdzić):',
+      '⭐ Wybierz <b>priorytet</b> pracowników (można wybrać kilka, ➡️ aby pominąć):',
       { reply_markup: priorityKeyboard([]) }
     );
     return ctx.wizard.next();
   },
 
-  // Step 10 – priority multi-select, then save and post
+  // Step 12 – priority multi-select, then show role (multi-select)
   async (ctx) => {
     if (!ctx.callbackQuery?.data) return;
     const cb = ctx.callbackQuery.data;
 
     if (cb.startsWith('prio:') && cb !== 'prio:done') {
-      const p        = cb.replace('prio:', '');
-      const selected = ctx.scene.state.selectedPriorities || [];
-      const idx      = selected.indexOf(p);
-      if (idx === -1) selected.push(p); else selected.splice(idx, 1);
-      ctx.scene.state.selectedPriorities = selected;
-      await ctx.editMessageReplyMarkup(priorityKeyboard(selected));
+      const p = cb.replace('prio:', '');
+      const sel = ctx.scene.state.selectedPriorities || [];
+      const idx = sel.indexOf(p);
+      if (idx === -1) sel.push(p); else sel.splice(idx, 1);
+      ctx.scene.state.selectedPriorities = sel;
+      await ctx.editMessageReplyMarkup(priorityKeyboard(sel));
       await ctx.answerCbQuery();
-      return; // stay on this step
+      return;
     }
 
-    // prio:done — save
     await ctx.answerCbQuery();
-    const selected = ctx.scene.state.selectedPriorities || [];
-    ctx.scene.state.data.priority_filter = selected.length ? selected.join(',') : null;
+    const sel = ctx.scene.state.selectedPriorities || [];
+    ctx.scene.state.data.priority_filter = sel.length ? sel.join(',') : null;
+    ctx.scene.state.selectedRoles = [];
+    await ctx.replyWithHTML(
+      '🍽 Wybierz <b>role</b> pracowników (można wybrać kilka, ➡️ aby pominąć):',
+      { reply_markup: roleKeyboard([]) }
+    );
+    return ctx.wizard.next();
+  },
+
+  // Step 13 – role multi-select, then save & post
+  async (ctx) => {
+    if (!ctx.callbackQuery?.data) return;
+    const cb = ctx.callbackQuery.data;
+
+    if (cb.startsWith('role:') && cb !== 'role:done') {
+      const r = cb.replace('role:', '');
+      const sel = ctx.scene.state.selectedRoles || [];
+      const idx = sel.indexOf(r);
+      if (idx === -1) sel.push(r); else sel.splice(idx, 1);
+      ctx.scene.state.selectedRoles = sel;
+      await ctx.editMessageReplyMarkup(roleKeyboard(sel));
+      await ctx.answerCbQuery();
+      return;
+    }
+
+    await ctx.answerCbQuery();
+    const selRoles = ctx.scene.state.selectedRoles || [];
+    ctx.scene.state.data.role_filter = selRoles.length ? selRoles.join(',') : null;
 
     const { data } = ctx.scene.state;
     const shiftId = createShift({ ...data, created_by: ctx.from.id });
     const shift   = getShift(shiftId);
-
     const targetChatId = getSetting('target_chat_id');
 
     let sent;
@@ -255,7 +326,7 @@ const createShiftScene = new Scenes.WizardScene(
       await ctx.replyWithHTML('✅ Zmiana utworzona i opublikowana w grupie!', { reply_markup: BACK_KEYBOARD });
     } else {
       sent = await ctx.replyWithHTML(shiftText(shift), { reply_markup: shiftKeyboard(shiftId) });
-      await ctx.replyWithHTML('✅ Zmiana utworzona!\n\n⚠️ Brak połączonej grupy. Użyj /setchat w grupie.', { reply_markup: BACK_KEYBOARD });
+      await ctx.replyWithHTML('✅ Zmiana utworzona!\n\n⚠️ Brak połączonej grupy.', { reply_markup: BACK_KEYBOARD });
     }
 
     setShiftMessage(shiftId, sent.chat.id, sent.message_id);
@@ -271,18 +342,19 @@ createShiftScene.command('cancel', async (ctx) => {
 // ── Edit Shift Scene ─────────────────────────────────────────────────────────
 
 const EDIT_FIELDS = {
-  date:       { label: 'Data',           validate: parseDate,  hint: '(DD.MM)',  type: 'text' },
-  location:   { label: 'Miejsce',        validate: v => v,     hint: '',         type: 'text' },
-  dress_code: { label: 'Dress code',     validate: v => v,     hint: '',         type: 'text' },
-  start_time: { label: 'Początek',       validate: parseTime,  hint: '(GG:MM)', type: 'text' },
-  end_time:   { label: 'Koniec',         validate: parseTime,  hint: '(GG:MM)', type: 'text' },
-  required:        { label: 'Liczba miejsc',  validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '', type: 'text' },
-  stawka:          { label: 'Stawka (zł/h)', validate: v => { if (!v || v === '/skip') return null; const n = parseFloat(v.replace(',','.')); return isNaN(n) ? null : n; }, hint: '(zł, lub /skip)', type: 'text' },
-  lista:           { label: 'Lista do wypisu',  validate: v => v,         hint: '',        type: 'button' },
-  zbiorka:         { label: 'Zbiórka',           validate: v => v || null, hint: '',        type: 'text' },
-  zbiorka_contact: { label: 'Zbiórka — kontakt', validate: v => v || null, hint: '',        type: 'text' },
-  for_gender:      { label: 'Dla kogo',          validate: v => v,         hint: '',        type: 'button' },
-  priority_filter: { label: 'Priorytet',         validate: v => v || null, hint: '',        type: 'button' },
+  date:            { label: 'Data',            validate: parseDate,  hint: '(DD.MM)',      type: 'text'   },
+  location:        { label: 'Miejsce',         validate: v => v,     hint: '',             type: 'text'   },
+  dress_code:      { label: 'Dress code',      validate: v => v,     hint: '',             type: 'button' },
+  start_time:      { label: 'Początek',        validate: parseTime,  hint: '(GG:MM)',      type: 'text'   },
+  end_time:        { label: 'Koniec',          validate: parseTime,  hint: '(GG:MM)',      type: 'text'   },
+  required:        { label: 'Liczba miejsc',   validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '', type: 'text' },
+  stawka:          { label: 'Stawka (zł/h)',   validate: v => { if (!v || v === '/skip') return null; const n = parseFloat(v.replace(',','.')); return isNaN(n) ? null : n; }, hint: '(lub /skip)', type: 'text' },
+  lista:           { label: 'Lista do wypisu', validate: v => v,         hint: '',         type: 'button' },
+  zbiorka:         { label: 'Zbiórka',         validate: v => v || null, hint: '',         type: 'text'   },
+  zbiorka_contact: { label: 'Zbiórka kontakt', validate: v => v || null, hint: '',         type: 'text'   },
+  for_gender:      { label: 'Dla kogo (płeć)', validate: v => v,         hint: '',         type: 'button' },
+  priority_filter: { label: 'Priorytet',       validate: v => v || null, hint: '',         type: 'button' },
+  role_filter:     { label: 'Role',            validate: v => v || null, hint: '',         type: 'button' },
 };
 
 function editFieldsKeyboard() {
@@ -309,7 +381,7 @@ const editShiftScene = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  // Step 1 – receive field choice
+  // Step 1 – receive field choice, show appropriate input
   async (ctx) => {
     if (!ctx.callbackQuery?.data) return;
     const cbData = ctx.callbackQuery.data;
@@ -323,23 +395,27 @@ const editShiftScene = new Scenes.WizardScene(
 
     const field = cbData.replace('editfield:', '');
     if (!EDIT_FIELDS[field]) return;
-
     ctx.scene.state.editField = field;
+    ctx.scene.state.waitingDcCustom = false;
 
-    if (field === 'lista') {
+    if (field === 'dress_code') {
+      await ctx.replyWithHTML('👔 Wybierz <b>dress code</b>:', { reply_markup: DRESS_CODE_KEYBOARD });
+    } else if (field === 'lista') {
       await ctx.replyWithHTML('📋 Wybierz <b>Lista do wypisu</b>:', { reply_markup: LISTA_KEYBOARD });
     } else if (field === 'zbiorka' || field === 'zbiorka_contact') {
-      await ctx.replyWithHTML(`📍 Podaj <b>${EDIT_FIELDS[field].label}</b> lub usuń:`, { reply_markup: ZBIORKA_KEYBOARD });
+      await ctx.replyWithHTML(`📍 Podaj <b>${EDIT_FIELDS[field].label}</b> lub pomiń:`, { reply_markup: ZBIORKA_KEYBOARD });
     } else if (field === 'for_gender') {
-      await ctx.replyWithHTML('👥 Kto może zapisać się na tę zmianę?', { reply_markup: GENDER_KEYBOARD });
+      await ctx.replyWithHTML('👥 Kto może się zapisać?', { reply_markup: GENDER_KEYBOARD });
     } else if (field === 'priority_filter') {
-      const shift    = getShift(ctx.scene.state.shiftId);
-      const current  = shift?.priority_filter ? shift.priority_filter.split(',') : [];
+      const shift   = getShift(ctx.scene.state.shiftId);
+      const current = shift?.priority_filter ? shift.priority_filter.split(',') : [];
       ctx.scene.state.editPriorities = current;
-      await ctx.replyWithHTML(
-        '⭐ Wybierz wymagany <b>priorytet</b> (naciśnij ➡️ aby zatwierdzić):',
-        { reply_markup: priorityKeyboard(current) }
-      );
+      await ctx.replyWithHTML('⭐ Wybierz <b>priorytet</b>:', { reply_markup: priorityKeyboard(current) });
+    } else if (field === 'role_filter') {
+      const shift   = getShift(ctx.scene.state.shiftId);
+      const current = shift?.role_filter ? shift.role_filter.split(',') : [];
+      ctx.scene.state.editRoles = current;
+      await ctx.replyWithHTML('🍽 Wybierz <b>role</b>:', { reply_markup: roleKeyboard(current) });
     } else {
       const { label, hint } = EDIT_FIELDS[field];
       await ctx.replyWithHTML(`Podaj nową wartość dla <b>${label}</b> ${hint}:`);
@@ -347,94 +423,119 @@ const editShiftScene = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  // Step 2 – receive new value (text or button)
+  // Step 2 – receive value, update shift
   async (ctx) => {
     const field = ctx.scene.state.editField;
 
-    // Priority multi-select — stay on step until done
+    // Dress code
+    if (field === 'dress_code') {
+      if (ctx.scene.state.waitingDcCustom) {
+        if (!ctx.message?.text) return;
+        ctx.scene.state.waitingDcCustom = false;
+        return applyEdit(ctx, field, ctx.message.text.trim());
+      }
+      if (!ctx.callbackQuery?.data?.startsWith('dc:')) return;
+      const val = ctx.callbackQuery.data.replace('dc:', '');
+      await ctx.answerCbQuery();
+      if (val === 'custom') {
+        ctx.scene.state.waitingDcCustom = true;
+        await ctx.reply('Wpisz własny dress code:');
+        return;
+      }
+      return applyEdit(ctx, field, val);
+    }
+
+    // Priority multi-select
     if (field === 'priority_filter') {
       if (!ctx.callbackQuery?.data) return;
       const cb = ctx.callbackQuery.data;
-
       if (cb.startsWith('prio:') && cb !== 'prio:done') {
-        const p        = cb.replace('prio:', '');
-        const selected = ctx.scene.state.editPriorities || [];
-        const idx      = selected.indexOf(p);
-        if (idx === -1) selected.push(p); else selected.splice(idx, 1);
-        ctx.scene.state.editPriorities = selected;
-        await ctx.editMessageReplyMarkup(priorityKeyboard(selected));
+        const p = cb.replace('prio:', '');
+        const sel = ctx.scene.state.editPriorities || [];
+        const idx = sel.indexOf(p);
+        if (idx === -1) sel.push(p); else sel.splice(idx, 1);
+        ctx.scene.state.editPriorities = sel;
+        await ctx.editMessageReplyMarkup(priorityKeyboard(sel));
         await ctx.answerCbQuery();
         return;
       }
-
       await ctx.answerCbQuery();
-      const selected = ctx.scene.state.editPriorities || [];
-      const value    = selected.length ? selected.join(',') : null;
-      const { shiftId } = ctx.scene.state;
-      updateShift(shiftId, { priority_filter: value });
-      const shift = getShift(shiftId);
-      if (shift.chat_id && shift.message_id) {
-        try {
-          await ctx.telegram.editMessageText(
-            shift.chat_id, shift.message_id, undefined,
-            shiftText(shift),
-            { parse_mode: 'HTML', reply_markup: shiftKeyboard(shiftId) }
-          );
-        } catch {}
-      }
-      await ctx.replyWithHTML(
-        `✅ <b>Priorytet</b> zaktualizowano.\n\n${shiftText(shift)}\n\nKtóre pole chcesz zmienić?`,
-        { reply_markup: editFieldsKeyboard() }
-      );
-      ctx.wizard.selectStep(1);
-      return;
+      const sel = ctx.scene.state.editPriorities || [];
+      return applyEdit(ctx, field, sel.length ? sel.join(',') : null, true);
     }
 
-    let raw;
+    // Role multi-select
+    if (field === 'role_filter') {
+      if (!ctx.callbackQuery?.data) return;
+      const cb = ctx.callbackQuery.data;
+      if (cb.startsWith('role:') && cb !== 'role:done') {
+        const r = cb.replace('role:', '');
+        const sel = ctx.scene.state.editRoles || [];
+        const idx = sel.indexOf(r);
+        if (idx === -1) sel.push(r); else sel.splice(idx, 1);
+        ctx.scene.state.editRoles = sel;
+        await ctx.editMessageReplyMarkup(roleKeyboard(sel));
+        await ctx.answerCbQuery();
+        return;
+      }
+      await ctx.answerCbQuery();
+      const sel = ctx.scene.state.editRoles || [];
+      return applyEdit(ctx, field, sel.length ? sel.join(',') : null, true);
+    }
+
+    // Lista
     if (field === 'lista') {
       if (!ctx.callbackQuery?.data?.startsWith('lista:')) return;
-      raw = ctx.callbackQuery.data.replace('lista:', '');
       await ctx.answerCbQuery();
-    } else if (field === 'for_gender') {
-      if (!ctx.callbackQuery?.data?.startsWith('fg:')) return;
-      raw = ctx.callbackQuery.data.replace('fg:', '');
-      await ctx.answerCbQuery();
-    } else if ((field === 'zbiorka' || field === 'zbiorka_contact') && ctx.callbackQuery?.data === 'zbiorka:skip') {
-      await ctx.answerCbQuery();
-      raw = '';
-    } else {
-      if (!ctx.message?.text) return;
-      raw = ctx.message.text.trim();
+      return applyEdit(ctx, field, ctx.callbackQuery.data.replace('lista:', ''));
     }
 
+    // Gender
+    if (field === 'for_gender') {
+      if (!ctx.callbackQuery?.data?.startsWith('fg:')) return;
+      await ctx.answerCbQuery();
+      return applyEdit(ctx, field, ctx.callbackQuery.data.replace('fg:', ''));
+    }
+
+    // Zbiorka skip
+    if ((field === 'zbiorka' || field === 'zbiorka_contact') && ctx.callbackQuery?.data === 'zbiorka:skip') {
+      await ctx.answerCbQuery();
+      return applyEdit(ctx, field, null, true);
+    }
+
+    // Text fields
+    if (!ctx.message?.text) return;
+    const raw = ctx.message.text.trim();
     const { validate } = EDIT_FIELDS[field];
     const value = validate(raw);
-
     if (value === null || value === undefined) {
       return ctx.reply('⚠️ Nieprawidłowa wartość. Spróbuj ponownie.');
     }
-
-    const { shiftId } = ctx.scene.state;
-    updateShift(shiftId, { [field]: value });
-    const shift = getShift(shiftId);
-
-    if (shift.chat_id && shift.message_id) {
-      try {
-        await ctx.telegram.editMessageText(
-          shift.chat_id, shift.message_id, undefined,
-          shiftText(shift),
-          { parse_mode: 'HTML', reply_markup: shiftKeyboard(shiftId) }
-        );
-      } catch {}
-    }
-
-    await ctx.replyWithHTML(
-      `✅ <b>${EDIT_FIELDS[field].label}</b> zaktualizowano.\n\n${shiftText(shift)}\n\nKtóre pole chcesz zmienić?`,
-      { reply_markup: editFieldsKeyboard() }
-    );
-    ctx.wizard.selectStep(1);
+    return applyEdit(ctx, field, value);
   }
 );
+
+async function applyEdit(ctx, field, value, skipValidate = false) {
+  const { shiftId } = ctx.scene.state;
+  updateShift(shiftId, { [field]: value });
+  const shift = getShift(shiftId);
+
+  if (shift.chat_id && shift.message_id) {
+    try {
+      await ctx.telegram.editMessageText(
+        shift.chat_id, shift.message_id, undefined,
+        shiftText(shift),
+        { parse_mode: 'HTML', reply_markup: shiftKeyboard(shiftId) }
+      );
+    } catch {}
+  }
+
+  await ctx.replyWithHTML(
+    `✅ <b>${EDIT_FIELDS[field].label}</b> zaktualizowano.\n\n${shiftText(shift)}\n\nKtóre pole chcesz zmienić?`,
+    { reply_markup: editFieldsKeyboard() }
+  );
+  ctx.wizard.selectStep(1);
+}
 
 editShiftScene.command('cancel', async (ctx) => {
   await ctx.reply('Edycja anulowana.');
