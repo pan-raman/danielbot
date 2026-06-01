@@ -119,10 +119,11 @@ function joinShift(shiftId, userId) {
   const shift = getShift(shiftId);
   if (!shift) return { ok: false, reason: 'not_found' };
 
+  const user = getUser(userId);
+
   // Gender check
   const forGender = shift.for_gender || 'all';
   if (forGender !== 'all') {
-    const user = getUser(userId);
     if (!user || !user.gender) return { ok: false, reason: 'no_gender' };
     if (user.gender !== forGender) return { ok: false, reason: 'wrong_gender' };
   }
@@ -145,7 +146,7 @@ function joinShift(shiftId, userId) {
 
   db.prepare(
     "INSERT INTO shift_participants (shift_id, user_id, status, snap_name, snap_phone, snap_pesel) VALUES (?, ?, 'pending', ?, ?, ?)"
-  ).run(shiftId, userId, user.reg_name || null, user.reg_phone || null, user.reg_pesel || null);
+  ).run(shiftId, userId, user?.reg_name || null, user?.reg_phone || null, user?.reg_pesel || null);
 
   return { ok: true };
 }
