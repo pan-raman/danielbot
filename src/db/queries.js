@@ -59,6 +59,17 @@ function getAllUsers() {
   return getDb().prepare('SELECT * FROM users ORDER BY created_at DESC').all();
 }
 
+function setRegistration(userId, { reg_name, reg_phone, reg_pesel, gender }) {
+  getDb().prepare(
+    'UPDATE users SET reg_name = ?, reg_phone = ?, reg_pesel = ?, gender = ? WHERE id = ?'
+  ).run(reg_name, reg_phone, reg_pesel, gender, userId);
+}
+
+function isRegistered(userId) {
+  const row = getDb().prepare('SELECT reg_name, gender FROM users WHERE id = ?').get(userId);
+  return !!(row && row.reg_name && row.gender);
+}
+
 function getAllAdminIds() {
   const envAdmins = (process.env.ADMIN_IDS || '')
     .split(',')
@@ -73,9 +84,9 @@ function getAllAdminIds() {
 function createShift(data) {
   const db = getDb();
   const result = db.prepare(`
-    INSERT INTO shifts (date, location, dress_code, start_time, end_time, required, lista, zbiorka, for_gender, created_by)
-    VALUES (@date, @location, @dress_code, @start_time, @end_time, @required, @lista, @zbiorka, @for_gender, @created_by)
-  `).run({ lista: null, zbiorka: null, for_gender: 'all', ...data });
+    INSERT INTO shifts (date, location, dress_code, start_time, end_time, required, lista, zbiorka, zbiorka_contact, for_gender, created_by)
+    VALUES (@date, @location, @dress_code, @start_time, @end_time, @required, @lista, @zbiorka, @zbiorka_contact, @for_gender, @created_by)
+  `).run({ lista: null, zbiorka: null, zbiorka_contact: null, for_gender: 'all', ...data });
   return result.lastInsertRowid;
 }
 
@@ -247,7 +258,7 @@ function setSetting(key, value) {
 
 module.exports = {
   upsertUser, getUser, isAdmin, isBanned, setBanned, setAdmin, getAllUsers, getAllAdminIds,
-  setGender, getGender,
+  setGender, getGender, setRegistration, isRegistered,
   createShift, getShift, getAllShifts, updateShift, deleteShift, setShiftMessage,
   joinShift, approveParticipant, rejectParticipant, leaveShift,
   getParticipants, isParticipant, getParticipantStatus,

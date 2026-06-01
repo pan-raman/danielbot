@@ -126,17 +126,40 @@ const createShiftScene = new Scenes.WizardScene(
     await ctx.answerCbQuery();
     ctx.scene.state.data.lista = lista;
 
-    await ctx.replyWithHTML('📍 Podaj <b>Zbiórka</b> (miejsce zbiórki) lub pomiń:', { reply_markup: ZBIORKA_KEYBOARD });
+    await ctx.replyWithHTML('📍 Podaj <b>Zbiórka</b> (miejsce i czas) lub pomiń:', { reply_markup: ZBIORKA_KEYBOARD });
     return ctx.wizard.next();
   },
 
-  // Step 8 – receive zbiorka (text or skip), ask for_gender
+  // Step 8 – receive zbiorka (text or skip), ask zbiorka_contact
   async (ctx) => {
     if (ctx.callbackQuery?.data === 'zbiorka:skip') {
       await ctx.answerCbQuery();
-      ctx.scene.state.data.zbiorka = null;
+      ctx.scene.state.data.zbiorka         = null;
+      ctx.scene.state.data.zbiorka_contact = null;
+      await ctx.replyWithHTML('👥 Kto może zapisać się na tę zmianę?', { reply_markup: GENDER_KEYBOARD });
+      return ctx.wizard.next();
     } else if (ctx.message?.text) {
       ctx.scene.state.data.zbiorka = ctx.message.text.trim();
+    } else {
+      return;
+    }
+
+    await ctx.replyWithHTML(
+      '👤 Podaj osobę kontaktową dla Zbiórka\n' +
+      '(imię, nazwisko i telefon — np. <code>Jan Kowalski +48 600 100 200</code>)\n\n' +
+      'lub pomiń:',
+      { reply_markup: ZBIORKA_KEYBOARD }
+    );
+    return ctx.wizard.next();
+  },
+
+  // Step 9 – receive zbiorka_contact (text or skip), ask for_gender
+  async (ctx) => {
+    if (ctx.callbackQuery?.data === 'zbiorka:skip') {
+      await ctx.answerCbQuery();
+      ctx.scene.state.data.zbiorka_contact = null;
+    } else if (ctx.message?.text) {
+      ctx.scene.state.data.zbiorka_contact = ctx.message.text.trim();
     } else {
       return;
     }
@@ -189,9 +212,10 @@ const EDIT_FIELDS = {
   start_time: { label: 'Początek',       validate: parseTime,  hint: '(GG:MM)', type: 'text' },
   end_time:   { label: 'Koniec',         validate: parseTime,  hint: '(GG:MM)', type: 'text' },
   required:   { label: 'Liczba miejsc',  validate: v => { const n = parseInt(v, 10); return isNaN(n) || n < 1 ? null : n; }, hint: '', type: 'text' },
-  lista:      { label: 'Lista do wypisu',validate: v => v,     hint: '',         type: 'button' },
-  zbiorka:    { label: 'Zbiórka',        validate: v => v || null, hint: '',         type: 'text' },
-  for_gender: { label: 'Dla kogo',       validate: v => v,         hint: '',         type: 'button' },
+  lista:           { label: 'Lista do wypisu',  validate: v => v,         hint: '',        type: 'button' },
+  zbiorka:         { label: 'Zbiórka',           validate: v => v || null, hint: '',        type: 'text' },
+  zbiorka_contact: { label: 'Zbiórka — kontakt', validate: v => v || null, hint: '',        type: 'text' },
+  for_gender:      { label: 'Dla kogo',          validate: v => v,         hint: '',        type: 'button' },
 };
 
 function editFieldsKeyboard() {
@@ -237,8 +261,8 @@ const editShiftScene = new Scenes.WizardScene(
 
     if (field === 'lista') {
       await ctx.replyWithHTML('📋 Wybierz <b>Lista do wypisu</b>:', { reply_markup: LISTA_KEYBOARD });
-    } else if (field === 'zbiorka') {
-      await ctx.replyWithHTML('📍 Podaj <b>Zbiórka</b> lub usuń:', { reply_markup: ZBIORKA_KEYBOARD });
+    } else if (field === 'zbiorka' || field === 'zbiorka_contact') {
+      await ctx.replyWithHTML(`📍 Podaj <b>${EDIT_FIELDS[field].label}</b> lub usuń:`, { reply_markup: ZBIORKA_KEYBOARD });
     } else if (field === 'for_gender') {
       await ctx.replyWithHTML('👥 Kto może zapisać się na tę zmianę?', { reply_markup: GENDER_KEYBOARD });
     } else {
@@ -261,7 +285,7 @@ const editShiftScene = new Scenes.WizardScene(
       if (!ctx.callbackQuery?.data?.startsWith('fg:')) return;
       raw = ctx.callbackQuery.data.replace('fg:', '');
       await ctx.answerCbQuery();
-    } else if (field === 'zbiorka' && ctx.callbackQuery?.data === 'zbiorka:skip') {
+    } else if ((field === 'zbiorka' || field === 'zbiorka_contact') && ctx.callbackQuery?.data === 'zbiorka:skip') {
       await ctx.answerCbQuery();
       raw = '';
     } else {

@@ -74,15 +74,19 @@ function migrate(db) {
 
   // Migrations for existing databases
   const cols = db.pragma('table_info(shifts)').map(c => c.name);
-  if (!cols.includes('lista'))      db.exec('ALTER TABLE shifts ADD COLUMN lista TEXT');
-  if (!cols.includes('zbiorka'))    db.exec('ALTER TABLE shifts ADD COLUMN zbiorka TEXT');
-  if (!cols.includes('for_gender')) db.exec('ALTER TABLE shifts ADD COLUMN for_gender TEXT DEFAULT "all"');
+  if (!cols.includes('lista'))           db.exec('ALTER TABLE shifts ADD COLUMN lista TEXT');
+  if (!cols.includes('zbiorka'))         db.exec('ALTER TABLE shifts ADD COLUMN zbiorka TEXT');
+  if (!cols.includes('for_gender'))      db.exec('ALTER TABLE shifts ADD COLUMN for_gender TEXT DEFAULT "all"');
+  if (!cols.includes('zbiorka_contact')) db.exec('ALTER TABLE shifts ADD COLUMN zbiorka_contact TEXT');
 
   const userCols = db.pragma('table_info(users)').map(c => c.name);
-  if (!userCols.includes('gender')) db.exec('ALTER TABLE users ADD COLUMN gender TEXT');
+  if (!userCols.includes('gender'))      db.exec('ALTER TABLE users ADD COLUMN gender TEXT');
+  if (!userCols.includes('reg_name'))    db.exec('ALTER TABLE users ADD COLUMN reg_name TEXT');
+  if (!userCols.includes('reg_phone'))   db.exec('ALTER TABLE users ADD COLUMN reg_phone TEXT');
+  if (!userCols.includes('reg_pesel'))   db.exec('ALTER TABLE users ADD COLUMN reg_pesel TEXT');
 
   const spCols = db.pragma('table_info(shift_participants)').map(c => c.name);
-  if (!spCols.includes('status'))   db.exec("ALTER TABLE shift_participants ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'");
+  if (!spCols.includes('status'))        db.exec("ALTER TABLE shift_participants ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'");
 }
 
 module.exports = { getDb };

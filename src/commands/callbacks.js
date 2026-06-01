@@ -60,17 +60,22 @@ function registerCallbacks(bot) {
     if (result.ok) {
       await ctx.answerCbQuery('⏳ Zgłoszenie wysłane! Czekaj na potwierdzenie admina.', { show_alert: true });
 
-      // Notify all admins
-      const shift    = getShift(shiftId);
-      const user     = getUser(userId);
-      const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ')
-        || user.username ? `@${user.username}` : `#${userId}`;
+      // Notify all admins with full user details
+      const shift = getShift(shiftId);
+      const user  = getUser(userId);
+      const displayName = user.reg_name
+        || [user.first_name, user.last_name].filter(Boolean).join(' ')
+        || (user.username ? `@${user.username}` : `#${userId}`);
 
       const adminText =
         `🔔 <b>Nowe zgłoszenie na zmianę</b>\n\n` +
-        `👤 ${fullName}\n` +
         `📅 ${formatDate(shift.date)} | ${shift.location}\n` +
-        `🕐 ${shift.start_time} – ${shift.end_time}`;
+        `🕐 ${shift.start_time} – ${shift.end_time}\n\n` +
+        `<b>Dane pracownika:</b>\n` +
+        `👤 ${displayName}\n` +
+        (user.reg_phone ? `📞 ${user.reg_phone}\n` : '') +
+        (user.reg_pesel ? `🪪 PESEL: ${user.reg_pesel}\n` : '') +
+        (user.gender    ? `${user.gender === 'male' ? '👨' : '👩'} ${user.gender === 'male' ? 'Mężczyzna' : 'Kobieta'}\n` : '');
 
       const admins = getAllAdminIds();
       for (const adminId of admins) {

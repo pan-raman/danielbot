@@ -39,8 +39,9 @@ function shiftText(shift) {
     `📍 <b>${shift.location}</b>\n` +
     `👔 ${shift.dress_code}\n` +
     `🕐 ${shift.start_time} – ${shift.end_time}\n` +
-    (shift.zbiorka    ? `📌 Zbiórka: ${shift.zbiorka}\n`                            : '') +
-    (shift.lista      ? `📋 Lista do wypisu: ${shift.lista}\n`                       : '') +
+    (shift.zbiorka    ? `📌 Zbiórka: ${shift.zbiorka}\n` : '') +
+    (shift.zbiorka_contact ? `👤 Kontakt: ${shift.zbiorka_contact}\n` : '') +
+    (shift.lista      ? `📋 Lista do wypisu: ${shift.lista}\n` : '') +
     (shift.for_gender && shift.for_gender !== 'all'
       ? `${GENDER_LABEL[shift.for_gender]}\n`
       : '') +

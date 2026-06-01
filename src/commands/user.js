@@ -1,12 +1,5 @@
-const { getAllShifts, getParticipants, getUser, setGender } = require('../db/queries');
+const { getAllShifts, getParticipants, getUser, isRegistered } = require('../db/queries');
 const { shiftText, shiftKeyboard } = require('../helpers/format');
-
-const GENDER_KEYBOARD = {
-  inline_keyboard: [
-    [{ text: '👨 Mężczyzna', callback_data: 'gender:male'   }],
-    [{ text: '👩 Kobieta',   callback_data: 'gender:female' }],
-  ],
-};
 
 const START_KEYBOARD = {
   inline_keyboard: [[{ text: '📋 Moje zmiany', callback_data: 'my:shifts' }]],
@@ -15,30 +8,18 @@ const START_KEYBOARD = {
 function registerUserCommands(bot) {
 
   bot.start(async (ctx) => {
-    const user = getUser(ctx.from.id);
-
-    if (!user || !user.gender) {
+    if (!isRegistered(ctx.from.id)) {
       await ctx.replyWithHTML(
         '<b>Cześć!</b> 👋\n\n' +
-        'Zanim zaczniesz — powiedz nam kim jesteś:'
-      , { reply_markup: GENDER_KEYBOARD });
-    } else {
-      await ctx.replyWithHTML(
-        '<b>Cześć!</b> 👋\n\nWybierz co chcesz zrobić:',
-        { reply_markup: START_KEYBOARD }
+        'Witaj w systemie zarządzania zmianami.\n\n' +
+        'Aby korzystać z bota, najpierw wypełnij swój profil.'
       );
+      return ctx.scene.enter('registration');
     }
-  });
 
-  // Gender selection
-  bot.action(/^gender:(male|female)$/, async (ctx) => {
-    const gender = ctx.match[1];
-    setGender(ctx.from.id, gender);
-    await ctx.answerCbQuery();
-    const label = gender === 'male' ? '👨 Mężczyzna' : '👩 Kobieta';
-    await ctx.editMessageText(
-      `✅ Zapisano: <b>${label}</b>\n\nMożesz teraz zapisywać się na zmiany!`,
-      { parse_mode: 'HTML', reply_markup: START_KEYBOARD }
+    await ctx.replyWithHTML(
+      '<b>Cześć!</b> 👋\n\nWybierz co chcesz zrobić:',
+      { reply_markup: START_KEYBOARD }
     );
   });
 

@@ -1,7 +1,7 @@
 const {
   getAllShifts, getShift, deleteShift, getParticipants,
   setShiftMessage, getAllUsers, setBanned, setAdmin,
-  getSetting, setSetting,
+  getSetting, setSetting, getUser,
 } = require('../db/queries');
 const { shiftText, shiftKeyboard, userName, formatDate } = require('../helpers/format');
 const { adminOnly } = require('../middleware/guards');
@@ -91,14 +91,21 @@ async function showShiftList(ctx) {
 
 async function showShiftDetail(ctx, shiftId) {
   const shift = getShift(shiftId);
-  if (!shift) { await ctx.answerCbQuery('Смена не найдена', { show_alert: true }); return; }
+  if (!shift) { await ctx.answerCbQuery('Zmiana nie znaleziona', { show_alert: true }); return; }
 
   const participants = getParticipants(shiftId);
+
   const pList = participants.length
-    ? participants.map((u, i) => `${i + 1}. ${userName(u)}`).join('\n')
+    ? participants.map((u, i) => {
+        const full = getUser(u.id);
+        const name  = full?.reg_name || userName(u);
+        const phone = full?.reg_phone ? ` | 📞 ${full.reg_phone}` : '';
+        const pesel = full?.reg_pesel ? ` | 🪪 ${full.reg_pesel}` : '';
+        return `${i + 1}. ${name}${phone}${pesel}`;
+      }).join('\n')
     : '—';
 
-  const text = shiftText(shift) + `\n\n<b>Участники (${participants.length}/${shift.required}):</b>\n${pList}`;
+  const text = shiftText(shift) + `\n\n<b>Uczestnicy (${participants.length}/${shift.required}):</b>\n${pList}`;
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: shiftDetailKeyboard(shiftId) });
