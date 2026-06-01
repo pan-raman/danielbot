@@ -116,12 +116,32 @@ function registerCallbacks(bot) {
     const shiftId = parseInt(ctx.match[1], 10);
 
     const shift   = getShift(shiftId);
+    const user    = getUser(userId);
     const removed = leaveShift(shiftId, userId);
 
     if (removed) {
       await refreshShiftMessage(ctx, shiftId);
       await ctx.answerCbQuery('Anulowano udział.', { show_alert: false });
       if (shift) await sendDm(ctx, userId, cancellationText(shift));
+
+      // Notify all admins
+      if (shift && user) {
+        const displayName = user.reg_name
+          || [user.first_name, user.last_name].filter(Boolean).join(' ')
+          || (user.username ? `@${user.username}` : `#${userId}`);
+
+        const adminText =
+          `⚠️ <b>Ktoś zrezygnował ze zmiany!</b>\n\n` +
+          `👤 ${displayName}\n` +
+          (user.reg_phone ? `📞 ${user.reg_phone}\n` : '') +
+          `📅 ${formatDate(shift.date)} | ${shift.location}\n` +
+          `🕐 ${shift.start_time} – ${shift.end_time}`;
+
+        const admins = getAllAdminIds();
+        for (const adminId of admins) {
+          await sendDm(ctx, adminId, adminText);
+        }
+      }
     } else {
       await ctx.answerCbQuery('Nie byłeś zapisany na tę zmianę.', { show_alert: true });
     }

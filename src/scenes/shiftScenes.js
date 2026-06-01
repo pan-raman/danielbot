@@ -8,8 +8,9 @@ const BACK_KEYBOARD = {
 
 const LISTA_KEYBOARD = {
   inline_keyboard: [
-    [{ text: 'Heaven',  callback_data: 'lista:Heaven'  }],
-    [{ text: 'Forkers', callback_data: 'lista:Forkers' }],
+    [{ text: 'Heaven',  callback_data: 'lista:Heaven'  }, { text: 'Forkers', callback_data: 'lista:Forkers' }],
+    [{ text: 'A2',      callback_data: 'lista:A2'      }, { text: 'Konik',   callback_data: 'lista:Konik'   }],
+    [{ text: 'Kapitan', callback_data: 'lista:Kapitan' }, { text: 'Lili',    callback_data: 'lista:Lili'    }],
   ],
 };
 
