@@ -256,6 +256,9 @@ function registerParticipantCallbacks(bot) {
       await ctx.reply('Anulowano.');
     }
   });
+
+  // Pick virtual user → add as manual participant
+  bot.action(/^rmp:addvpick:(\d+):(\d+)$/, async (ctx) => {
     const shiftId = parseInt(ctx.match[1], 10);
     const vId     = parseInt(ctx.match[2], 10);
     const { getVirtualUser } = require('../db/queries');
