@@ -51,65 +51,69 @@ function registerCallbacks(bot) {
     const userId  = ctx.from.id;
     const shiftId = parseInt(ctx.match[1], 10);
 
-    if (isBanned(userId)) {
-      return ctx.answerCbQuery('🚫 Jesteś zablokowany.', { show_alert: true });
-    }
-
-    if (!isRegistered(userId)) {
-      const botUsername = ctx.botInfo?.username;
-      return ctx.answerCbQuery(
-        `Aby się zapisać, najpierw zarejestruj się u bota.\nOtwórz @${botUsername} i naciśnij Start.`,
-        { show_alert: true }
-      );
-    }
-
-    const result = joinShift(shiftId, userId);
-
-    if (result.ok) {
-      await ctx.answerCbQuery('⏳ Zgłoszenie wysłane! Czekaj na potwierdzenie admina.', { show_alert: true });
-
-      // Notify all admins with full user details
-      const shift = getShift(shiftId);
-      const user  = getUser(userId);
-      const displayName = user.reg_name
-        || [user.first_name, user.last_name].filter(Boolean).join(' ')
-        || (user.username ? `@${user.username}` : `#${userId}`);
-
-      const adminText =
-        `🔔 <b>Nowe zgłoszenie na zmianę</b>\n\n` +
-        `📅 ${formatDate(shift.date)} | ${shift.location}\n` +
-        `🕐 ${shift.start_time} – ${shift.end_time}\n\n` +
-        `<b>Dane pracownika:</b>\n` +
-        `👤 ${displayName}\n` +
-        (user.reg_phone ? `📞 ${user.reg_phone}\n` : '') +
-        (user.reg_pesel ? `🪪 PESEL: ${user.reg_pesel}\n` : '') +
-        (user.gender    ? `${user.gender === 'male' ? '👨' : '👩'} ${user.gender === 'male' ? 'Mężczyzna' : 'Kobieta'}\n` : '');
-
-      const admins = getAllAdminIds();
-      for (const adminId of admins) {
-        await sendDm(ctx, adminId, adminText, { reply_markup: approvalKeyboard(shiftId, userId) });
+    try {
+      if (isBanned(userId)) {
+        return ctx.answerCbQuery('🚫 Jesteś zablokowany.', { show_alert: true });
       }
 
-    } else if (result.reason === 'already_joined') {
-      await ctx.answerCbQuery('Jesteś już zapisany (czeka na zatwierdzenie).', { show_alert: true });
-    } else if (result.reason === 'rejected') {
-      await ctx.answerCbQuery('⛔ Admin odrzucił Twoje zgłoszenie na tę zmianę.', { show_alert: true });
-    } else if (result.reason === 'full') {
-      await ctx.answerCbQuery('🔴 Zmiana jest już pełna.', { show_alert: true });
-    } else if (result.reason === 'wrong_role') {
-      await ctx.answerCbQuery('⛔ Ta zmiana wymaga innej roli (Kelner/Barman/Kuchnia).', { show_alert: true });
-    } else if (result.reason === 'wrong_priority') {
-      await ctx.answerCbQuery('⛔ Twój priorytet nie pozwala na zapis na tę zmianę.', { show_alert: true });
-    } else if (result.reason === 'wrong_gender') {
-      await ctx.answerCbQuery('⛔ Ta zmiana jest przeznaczona dla innej płci.', { show_alert: true });
-    } else if (result.reason === 'no_gender') {
-      const botUsername = ctx.botInfo?.username;
-      await ctx.answerCbQuery(
-        `Najpierw zarejestruj się u bota! Otwórz @${botUsername} i naciśnij Start.`,
-        { show_alert: true }
-      );
-    } else {
-      await ctx.answerCbQuery('Zmiana nie została znaleziona.', { show_alert: true });
+      if (!isRegistered(userId)) {
+        const botUsername = ctx.botInfo?.username;
+        return ctx.answerCbQuery(
+          `Aby się zapisać, najpierw zarejestruj się u bota.\nOtwórz @${botUsername} i naciśnij Start.`,
+          { show_alert: true }
+        );
+      }
+
+      const result = joinShift(shiftId, userId);
+
+      if (result.ok) {
+        await ctx.answerCbQuery('⏳ Zgłoszenie wysłane! Czekaj na potwierdzenie admina.', { show_alert: true });
+
+        const shift = getShift(shiftId);
+        const user  = getUser(userId);
+        const displayName = user?.reg_name
+          || [user?.first_name, user?.last_name].filter(Boolean).join(' ')
+          || (user?.username ? `@${user.username}` : `#${userId}`);
+
+        const adminText =
+          `🔔 <b>Nowe zgłoszenie na zmianę</b>\n\n` +
+          `📅 ${formatDate(shift.date)} | ${shift.location}\n` +
+          `🕐 ${shift.start_time} – ${shift.end_time}\n\n` +
+          `<b>Dane pracownika:</b>\n` +
+          `👤 ${displayName}\n` +
+          (user?.reg_phone ? `📞 ${user.reg_phone}\n` : '') +
+          (user?.reg_pesel ? `🪪 PESEL: ${user.reg_pesel}\n` : '') +
+          (user?.gender    ? `${user.gender === 'male' ? '👨' : '👩'} ${user.gender === 'male' ? 'Mężczyzna' : 'Kobieta'}\n` : '');
+
+        const admins = getAllAdminIds();
+        for (const adminId of admins) {
+          await sendDm(ctx, adminId, adminText, { reply_markup: approvalKeyboard(shiftId, userId) });
+        }
+
+      } else if (result.reason === 'already_joined') {
+        await ctx.answerCbQuery('Jesteś już zapisany (czeka na zatwierdzenie).', { show_alert: true });
+      } else if (result.reason === 'rejected') {
+        await ctx.answerCbQuery('⛔ Admin odrzucił Twoje zgłoszenie na tę zmianę.', { show_alert: true });
+      } else if (result.reason === 'full') {
+        await ctx.answerCbQuery('🔴 Zmiana jest już pełna.', { show_alert: true });
+      } else if (result.reason === 'wrong_role') {
+        await ctx.answerCbQuery('⛔ Ta zmiana wymaga innej roli (Kelner/Barman/Kuchnia).', { show_alert: true });
+      } else if (result.reason === 'wrong_priority') {
+        await ctx.answerCbQuery('⛔ Twój priorytet nie pozwala na zapis na tę zmianę.', { show_alert: true });
+      } else if (result.reason === 'wrong_gender') {
+        await ctx.answerCbQuery('⛔ Ta zmiana jest przeznaczona dla innej płci.', { show_alert: true });
+      } else if (result.reason === 'no_gender') {
+        const botUsername = ctx.botInfo?.username;
+        await ctx.answerCbQuery(
+          `Najpierw zarejestruj się u bota! Otwórz @${botUsername} i naciśnij Start.`,
+          { show_alert: true }
+        );
+      } else {
+        await ctx.answerCbQuery('Zmiana nie została znaleziona.', { show_alert: true });
+      }
+    } catch (e) {
+      console.error('join callback error:', e.message);
+      try { await ctx.answerCbQuery('⚠️ Błąd. Spróbuj ponownie.', { show_alert: true }); } catch {}
     }
   });
 

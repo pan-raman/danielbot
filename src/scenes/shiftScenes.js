@@ -6,6 +6,39 @@ const BACK_KEYBOARD = {
   inline_keyboard: [[{ text: '⬅️ Lista zmian', callback_data: 'ap:shifts' }]],
 };
 
+const LOCATIONS = [
+  'Restauracja Belvedere',
+  'Kawiarnia Belvedere',
+  'Catering Belvedere',
+  'Sheraton (Bolesława Prusa 2)',
+  'Polonia pałac',
+  'Legia',
+  'Narodowy',
+  'Kapitan',
+  'Konik',
+  'A2',
+  'Forkers',
+  'Lili',
+  'Heaven',
+  'Gado catering',
+  'Royal catering',
+  'RHCB',
+  'Warszawianka',
+  'Dawid (Grupa bez imienia)',
+  'Jajko catering',
+];
+
+function locationKeyboard() {
+  const rows = [];
+  for (let i = 0; i < LOCATIONS.length; i += 2) {
+    const row = [{ text: LOCATIONS[i], callback_data: `loc:${i}` }];
+    if (LOCATIONS[i + 1]) row.push({ text: LOCATIONS[i + 1], callback_data: `loc:${i + 1}` });
+    rows.push(row);
+  }
+  rows.push([{ text: '✏️ Wpisz własne', callback_data: 'loc:custom' }]);
+  return { inline_keyboard: rows };
+}
+
 const LISTA_KEYBOARD = {
   inline_keyboard: [
     [{ text: 'Heaven',  callback_data: 'lista:Heaven'  }, { text: 'Forkers', callback_data: 'lista:Forkers' }],
@@ -122,20 +155,35 @@ const createShiftScene = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  // Step 1 – receive date, ask location
+  // Step 1 – receive date, show location buttons
   async (ctx) => {
     if (!ctx.message?.text) return;
     const parsed = parseDate(ctx.message.text.trim());
     if (!parsed) return ctx.replyWithHTML('⚠️ Nieprawidłowa data. Spróbuj <code>25.12</code>');
     ctx.scene.state.data.date = parsed;
-    await ctx.replyWithHTML('📍 Podaj <b>miejsce</b>:');
+    ctx.scene.state.waitingLocCustom = false;
+    await ctx.replyWithHTML('📍 Wybierz <b>miejsce</b>:', { reply_markup: locationKeyboard() });
     return ctx.wizard.next();
   },
 
-  // Step 2 – receive location, show dress_code buttons
+  // Step 2 – receive location (button or custom text), show dress_code buttons
   async (ctx) => {
-    if (!ctx.message?.text) return;
-    ctx.scene.state.data.location = ctx.message.text.trim();
+    if (ctx.scene.state.waitingLocCustom) {
+      if (!ctx.message?.text) return;
+      ctx.scene.state.data.location = ctx.message.text.trim();
+      ctx.scene.state.waitingLocCustom = false;
+    } else if (ctx.callbackQuery?.data?.startsWith('loc:')) {
+      const val = ctx.callbackQuery.data.replace('loc:', '');
+      await ctx.answerCbQuery();
+      if (val === 'custom') {
+        ctx.scene.state.waitingLocCustom = true;
+        await ctx.reply('Wpisz własne miejsce:');
+        return;
+      }
+      ctx.scene.state.data.location = LOCATIONS[parseInt(val, 10)];
+    } else {
+      return;
+    }
     await ctx.replyWithHTML('👔 Wybierz <b>dress code</b>:', { reply_markup: DRESS_CODE_KEYBOARD });
     return ctx.wizard.next();
   },
@@ -343,7 +391,7 @@ createShiftScene.command('cancel', async (ctx) => {
 
 const EDIT_FIELDS = {
   date:            { label: 'Data',            validate: parseDate,  hint: '(DD.MM)',      type: 'text'   },
-  location:        { label: 'Miejsce',         validate: v => v,     hint: '',             type: 'text'   },
+  location:        { label: 'Miejsce',         validate: v => v,     hint: '',             type: 'button' },
   dress_code:      { label: 'Dress code',      validate: v => v,     hint: '',             type: 'button' },
   start_time:      { label: 'Początek',        validate: parseTime,  hint: '(GG:MM)',      type: 'text'   },
   end_time:        { label: 'Koniec',          validate: parseTime,  hint: '(GG:MM)',      type: 'text'   },
@@ -397,8 +445,11 @@ const editShiftScene = new Scenes.WizardScene(
     if (!EDIT_FIELDS[field]) return;
     ctx.scene.state.editField = field;
     ctx.scene.state.waitingDcCustom = false;
+    ctx.scene.state.waitingLocCustom = false;
 
-    if (field === 'dress_code') {
+    if (field === 'location') {
+      await ctx.replyWithHTML('📍 Wybierz <b>miejsce</b>:', { reply_markup: locationKeyboard() });
+    } else if (field === 'dress_code') {
       await ctx.replyWithHTML('👔 Wybierz <b>dress code</b>:', { reply_markup: DRESS_CODE_KEYBOARD });
     } else if (field === 'lista') {
       await ctx.replyWithHTML('📋 Wybierz <b>Lista do wypisu</b>:', { reply_markup: LISTA_KEYBOARD });
@@ -426,6 +477,24 @@ const editShiftScene = new Scenes.WizardScene(
   // Step 2 – receive value, update shift
   async (ctx) => {
     const field = ctx.scene.state.editField;
+
+    // Location
+    if (field === 'location') {
+      if (ctx.scene.state.waitingLocCustom) {
+        if (!ctx.message?.text) return;
+        ctx.scene.state.waitingLocCustom = false;
+        return applyEdit(ctx, field, ctx.message.text.trim());
+      }
+      if (!ctx.callbackQuery?.data?.startsWith('loc:')) return;
+      const val = ctx.callbackQuery.data.replace('loc:', '');
+      await ctx.answerCbQuery();
+      if (val === 'custom') {
+        ctx.scene.state.waitingLocCustom = true;
+        await ctx.reply('Wpisz własne miejsce:');
+        return;
+      }
+      return applyEdit(ctx, field, LOCATIONS[parseInt(val, 10)]);
+    }
 
     // Dress code
     if (field === 'dress_code') {
