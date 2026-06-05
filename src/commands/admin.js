@@ -2,6 +2,7 @@ const {
   getAllShifts, getShift, deleteShift, getParticipants,
   setShiftMessage, getAllUsers, setBanned, setAdmin,
   getSetting, setSetting, getUser, setPriority, setRole, setStawka,
+  getAllVirtualUsers, getVirtualUser, deleteVirtualUser,
 } = require('../db/queries');
 const { shiftText, shiftKeyboard, userName, formatDate } = require('../helpers/format');
 const { adminOnly } = require('../middleware/guards');
@@ -205,29 +206,85 @@ function registerAdminCommands(bot) {
   const PRIORITY_LABELS = { A: '⭐ A — VIP', B: '👍 B — dobry', C: '🔵 C — podstawowy' };
 
   bot.action('ap:users', adminOnly, async (ctx) => {
-    const users = getAllUsers().filter(u => u.reg_name);
-    if (!users.length) {
-      await ctx.editMessageText('Brak zarejestrowanych użytkowników.', {
-        reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'ap:menu' }]] },
-      });
-      return ctx.answerCbQuery();
+    const tgUsers      = getAllUsers().filter(u => u.reg_name);
+    const virtualUsers = getAllVirtualUsers();
+
+    const keyboard = { inline_keyboard: [] };
+
+    if (tgUsers.length) {
+      keyboard.inline_keyboard.push([{ text: '── Telegram ──', callback_data: 'ap:noop' }]);
+      for (const u of tgUsers) {
+        keyboard.inline_keyboard.push([{
+          text: `${u.reg_name} ${u.priority ? `[${u.priority}]` : ''}`,
+          callback_data: `ap:user:${u.id}`,
+        }]);
+      }
     }
 
-    const keyboard = {
-      inline_keyboard: [
-        ...users.map(u => [{
-          text: `${u.reg_name || userName(u)} ${u.priority ? `[${u.priority}]` : '[—]'}`,
-          callback_data: `ap:user:${u.id}`,
-        }]),
-        [{ text: '⬅️ Назад', callback_data: 'ap:menu' }],
-      ],
-    };
+    if (virtualUsers.length) {
+      keyboard.inline_keyboard.push([{ text: '── Offline ──', callback_data: 'ap:noop' }]);
+      for (const v of virtualUsers) {
+        keyboard.inline_keyboard.push([{
+          text: `📴 ${v.reg_name} ${v.priority ? `[${v.priority}]` : ''}`,
+          callback_data: `ap:vuser:${v.id}`,
+        }]);
+      }
+    }
 
-    await ctx.editMessageText('<b>👥 Pracownicy</b>\n\nWybierz osobę aby nadać priorytet:', {
+    keyboard.inline_keyboard.push([{ text: '➕ Dodaj pracownika offline', callback_data: 'ap:create_vuser' }]);
+    keyboard.inline_keyboard.push([{ text: '⬅️ Назад', callback_data: 'ap:menu' }]);
+
+    const total = tgUsers.length + virtualUsers.length;
+    await ctx.editMessageText(
+      `<b>👥 Pracownicy</b> (${total})\n\nWybierz osobę lub dodaj nową:`,
+      { parse_mode: 'HTML', reply_markup: keyboard }
+    );
+    await ctx.answerCbQuery();
+  });
+
+  bot.action('ap:noop', (ctx) => ctx.answerCbQuery());
+
+  // Create virtual user
+  bot.action('ap:create_vuser', adminOnly, async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.scene.enter('create_virtual_user');
+  });
+
+  // Virtual user detail
+  bot.action(/^ap:vuser:(\d+)$/, adminOnly, async (ctx) => {
+    const id   = parseInt(ctx.match[1], 10);
+    const user = getVirtualUser(id);
+    if (!user) { await ctx.answerCbQuery('Nie znaleziono'); return; }
+
+    const text =
+      `📴 <b>${user.reg_name}</b> <i>(offline)</i>\n` +
+      `📞 ${user.reg_phone || '—'}\n` +
+      `🪪 ${user.reg_pesel || '—'}\n` +
+      `👥 ${user.gender === 'male' ? '👨 Mężczyzna' : user.gender === 'female' ? '👩 Kobieta' : '—'}\n` +
+      `🍽 ${user.role || '—'}\n` +
+      `⭐ ${user.priority || '—'}\n` +
+      `💰 ${user.stawka ? `${user.stawka} zł/h` : '—'}`;
+
+    await ctx.editMessageText(text, {
       parse_mode: 'HTML',
-      reply_markup: keyboard,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🗑 Usuń',   callback_data: `ap:del_vuser:${id}` }],
+          [{ text: '⬅️ Wróć',  callback_data: 'ap:users'           }],
+        ],
+      },
     });
     await ctx.answerCbQuery();
+  });
+
+  // Delete virtual user
+  bot.action(/^ap:del_vuser:(\d+)$/, adminOnly, async (ctx) => {
+    const id = parseInt(ctx.match[1], 10);
+    deleteVirtualUser(id);
+    await ctx.editMessageText('🗑 Pracownik offline usunięty.', {
+      reply_markup: { inline_keyboard: [[{ text: '⬅️ Wróć', callback_data: 'ap:users' }]] },
+    });
+    await ctx.answerCbQuery('Usunięto');
   });
 
   bot.action(/^ap:user:(\d+)$/, adminOnly, async (ctx) => {

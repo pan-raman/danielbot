@@ -2,13 +2,13 @@ const { Scenes } = require('telegraf');
 const {
   getShift, getParticipants, getManualParticipants,
   addManualParticipant, removeManualParticipant, removeTgParticipant,
+  getAllVirtualUsers,
 } = require('../db/queries');
 const { shiftText, shiftKeyboard, userName, formatDate } = require('../helpers/format');
 
 function participantsManageKeyboard(shiftId, tgParticipants, manualParticipants) {
   const rows = [];
 
-  // Telegram participants
   for (const u of tgParticipants) {
     rows.push([{
       text: `❌ ${userName(u)} (TG)`,
@@ -16,7 +16,6 @@ function participantsManageKeyboard(shiftId, tgParticipants, manualParticipants)
     }]);
   }
 
-  // Manual participants
   for (const m of manualParticipants) {
     rows.push([{
       text: `❌ ${m.name}`,
@@ -24,14 +23,17 @@ function participantsManageKeyboard(shiftId, tgParticipants, manualParticipants)
     }]);
   }
 
-  rows.push([{ text: '➕ Dodaj ręcznie', callback_data: `rmp:add:${shiftId}` }]);
+  rows.push([
+    { text: '➕ Z listy offline', callback_data: `rmp:addv:${shiftId}` },
+    { text: '✏️ Wpisz ręcznie',   callback_data: `rmp:add:${shiftId}`  },
+  ]);
   rows.push([{ text: '⬅️ Wróć do zmiany', callback_data: `ap:shift:${shiftId}` }]);
 
   return { inline_keyboard: rows };
 }
 
 async function showParticipantsManager(ctx, shiftId) {
-  const shift   = getShift(shiftId);
+  const shift  = getShift(shiftId);
   if (!shift) { await ctx.answerCbQuery('Zmiana nie znaleziona'); return; }
 
   const tg     = getParticipants(shiftId);
@@ -42,8 +44,7 @@ async function showParticipantsManager(ctx, shiftId) {
     `👥 <b>Uczestnicy zmiany</b>\n` +
     `📅 ${formatDate(shift.date)} | ${shift.location}\n` +
     `Zapisanych: ${total}/${shift.required}\n\n` +
-    `Naciśnij ❌ przy osobie, aby ją usunąć.\n` +
-    `Naciśnij ➕ aby dodać osobę ręcznie.`;
+    `Naciśnij ❌ aby usunąć uczestnika.`;
 
   if (ctx.callbackQuery) {
     try {
@@ -60,25 +61,22 @@ async function showParticipantsManager(ctx, shiftId) {
   }
 }
 
-// ── Scene for adding manual participant ──────────────────────────────────────
+// ── Scene for adding manual participant (typed name) ─────────────────────────
 
 const manageParticipantsScene = new Scenes.WizardScene(
   'manage_participants',
 
-  // Step 0 – ask for name
   async (ctx) => {
     const shiftId = ctx.scene.state.shiftId;
     const shift   = getShift(shiftId);
     if (!shift) { await ctx.reply('Zmiana nie znaleziona.'); return ctx.scene.leave(); }
 
     await ctx.replyWithHTML(
-      `➕ <b>Dodaj uczestnika ręcznie</b>\n\n` +
-      `Podaj imię i nazwisko osoby (lub tylko imię):\n\n/cancel — anuluj`
+      `✏️ <b>Dodaj uczestnika ręcznie</b>\n\nPodaj imię i nazwisko:\n\n/cancel — anuluj`
     );
     return ctx.wizard.next();
   },
 
-  // Step 1 – receive name and save
   async (ctx) => {
     if (!ctx.message?.text) return;
     const name    = ctx.message.text.trim();
@@ -86,7 +84,6 @@ const manageParticipantsScene = new Scenes.WizardScene(
 
     addManualParticipant(shiftId, name, ctx.from.id);
 
-    // Update group post
     const shift = getShift(shiftId);
     if (shift.chat_id && shift.message_id) {
       try {
@@ -99,8 +96,6 @@ const manageParticipantsScene = new Scenes.WizardScene(
     }
 
     await ctx.reply(`✅ Dodano: ${name}`);
-
-    // Show updated participant manager
     await showParticipantsManager(ctx, shiftId);
     return ctx.scene.leave();
   }
@@ -115,58 +110,78 @@ manageParticipantsScene.command('cancel', async (ctx) => {
 
 function registerParticipantCallbacks(bot) {
 
-  // Open participant manager
   bot.action(/^ap:members:(\d+)$/, async (ctx) => {
     await showParticipantsManager(ctx, parseInt(ctx.match[1], 10));
   });
 
-  // Remove TG participant
   bot.action(/^rmp:tg:(\d+):(\d+)$/, async (ctx) => {
     const shiftId = parseInt(ctx.match[1], 10);
     const userId  = parseInt(ctx.match[2], 10);
-
     removeTgParticipant(shiftId, userId);
-
     const shift = getShift(shiftId);
     if (shift.chat_id && shift.message_id) {
-      try {
-        await ctx.telegram.editMessageText(
-          shift.chat_id, shift.message_id, undefined,
-          shiftText(shift),
-          { parse_mode: 'HTML', reply_markup: shiftKeyboard(shiftId) }
-        );
-      } catch {}
+      try { await ctx.telegram.editMessageText(shift.chat_id, shift.message_id, undefined, shiftText(shift), { parse_mode: 'HTML', reply_markup: shiftKeyboard(shiftId) }); } catch {}
     }
-
     await showParticipantsManager(ctx, shiftId);
   });
 
-  // Remove manual participant
   bot.action(/^rmp:manual:(\d+):(\d+)$/, async (ctx) => {
     const shiftId  = parseInt(ctx.match[1], 10);
     const manualId = parseInt(ctx.match[2], 10);
-
     removeManualParticipant(manualId);
-
     const shift = getShift(shiftId);
     if (shift.chat_id && shift.message_id) {
-      try {
-        await ctx.telegram.editMessageText(
-          shift.chat_id, shift.message_id, undefined,
-          shiftText(shift),
-          { parse_mode: 'HTML', reply_markup: shiftKeyboard(shiftId) }
-        );
-      } catch {}
+      try { await ctx.telegram.editMessageText(shift.chat_id, shift.message_id, undefined, shiftText(shift), { parse_mode: 'HTML', reply_markup: shiftKeyboard(shiftId) }); } catch {}
     }
-
     await showParticipantsManager(ctx, shiftId);
   });
 
-  // Add manual — enter scene
+  // Add typed manually
   bot.action(/^rmp:add:(\d+)$/, async (ctx) => {
     const shiftId = parseInt(ctx.match[1], 10);
     await ctx.answerCbQuery();
     await ctx.scene.enter('manage_participants', { shiftId });
+  });
+
+  // Add from virtual users list
+  bot.action(/^rmp:addv:(\d+)$/, async (ctx) => {
+    const shiftId = parseInt(ctx.match[1], 10);
+    const vusers  = getAllVirtualUsers();
+    await ctx.answerCbQuery();
+
+    if (!vusers.length) {
+      return ctx.reply('Brak pracowników offline. Dodaj ich najpierw w sekcji Pracownicy.');
+    }
+
+    const rows = vusers.map(v => [{
+      text: `${v.reg_name}${v.role ? ` (${v.role})` : ''}`,
+      callback_data: `rmp:addvpick:${shiftId}:${v.id}`,
+    }]);
+    rows.push([{ text: '⬅️ Anuluj', callback_data: `ap:members:${shiftId}` }]);
+
+    await ctx.replyWithHTML(
+      '📴 <b>Wybierz pracownika offline:</b>',
+      { reply_markup: { inline_keyboard: rows } }
+    );
+  });
+
+  // Pick virtual user → add as manual participant
+  bot.action(/^rmp:addvpick:(\d+):(\d+)$/, async (ctx) => {
+    const shiftId = parseInt(ctx.match[1], 10);
+    const vId     = parseInt(ctx.match[2], 10);
+    const { getVirtualUser } = require('../db/queries');
+    const vuser = getVirtualUser(vId);
+    if (!vuser) { await ctx.answerCbQuery('Nie znaleziono'); return; }
+
+    addManualParticipant(shiftId, vuser.reg_name, ctx.from.id);
+
+    const shift = getShift(shiftId);
+    if (shift.chat_id && shift.message_id) {
+      try { await ctx.telegram.editMessageText(shift.chat_id, shift.message_id, undefined, shiftText(shift), { parse_mode: 'HTML', reply_markup: shiftKeyboard(shiftId) }); } catch {}
+    }
+
+    await ctx.answerCbQuery(`✅ Dodano: ${vuser.reg_name}`);
+    await showParticipantsManager(ctx, shiftId);
   });
 }
 

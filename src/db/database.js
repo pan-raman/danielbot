@@ -70,6 +70,18 @@ function migrate(db) {
       added_at   TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS virtual_users (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      reg_name   TEXT NOT NULL,
+      reg_phone  TEXT,
+      reg_pesel  TEXT,
+      gender     TEXT,
+      priority   TEXT,
+      role       TEXT,
+      stawka     REAL,
+      created_by INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migrations for existing databases

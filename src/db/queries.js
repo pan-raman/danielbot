@@ -300,6 +300,33 @@ function removeTgParticipant(shiftId, userId) {
   ).run(shiftId, userId);
 }
 
+// ── Virtual users (offline workers) ─────────────────────────────────────────
+
+function createVirtualUser(data) {
+  const result = getDb().prepare(`
+    INSERT INTO virtual_users (reg_name, reg_phone, reg_pesel, gender, priority, role, stawka, created_by)
+    VALUES (@reg_name, @reg_phone, @reg_pesel, @gender, @priority, @role, @stawka, @created_by)
+  `).run({ reg_phone: null, reg_pesel: null, gender: null, priority: null, role: null, stawka: null, ...data });
+  return result.lastInsertRowid;
+}
+
+function getAllVirtualUsers() {
+  return getDb().prepare('SELECT * FROM virtual_users ORDER BY reg_name ASC').all();
+}
+
+function getVirtualUser(id) {
+  return getDb().prepare('SELECT * FROM virtual_users WHERE id = ?').get(id);
+}
+
+function updateVirtualUser(id, data) {
+  const fields = Object.keys(data).map(k => `${k} = @${k}`).join(', ');
+  getDb().prepare(`UPDATE virtual_users SET ${fields} WHERE id = @id`).run({ ...data, id });
+}
+
+function deleteVirtualUser(id) {
+  getDb().prepare('DELETE FROM virtual_users WHERE id = ?').run(id);
+}
+
 // ── Settings ────────────────────────────────────────────────────────────────
 
 function getSetting(key) {
@@ -316,6 +343,7 @@ function setSetting(key, value) {
 module.exports = {
   upsertUser, getUser, isAdmin, isBanned, setBanned, setAdmin, getAllUsers, getAllAdminIds,
   setGender, getGender, setRegistration, isRegistered, setPriority, setRole, setStawka,
+  createVirtualUser, getAllVirtualUsers, getVirtualUser, updateVirtualUser, deleteVirtualUser,
   createShift, getShift, getAllShifts, updateShift, deleteShift, setShiftMessage,
   joinShift, approveParticipant, rejectParticipant, leaveShift,
   getParticipants, isParticipant, getParticipantStatus, getParticipantRow,
