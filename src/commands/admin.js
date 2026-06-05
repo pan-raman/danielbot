@@ -1,7 +1,7 @@
 const {
   getAllShifts, getShift, deleteShift, getParticipants,
   setShiftMessage, getAllUsers, setBanned, setAdmin,
-  getSetting, setSetting, getUser, setPriority, setRole,
+  getSetting, setSetting, getUser, setPriority, setRole, setStawka,
 } = require('../db/queries');
 const { shiftText, shiftKeyboard, userName, formatDate } = require('../helpers/format');
 const { adminOnly } = require('../middleware/guards');
@@ -235,15 +235,17 @@ function registerAdminCommands(bot) {
     const user = getUser(uid);
     if (!user) { await ctx.answerCbQuery('Nie znaleziono'); return; }
 
-    const currentPrio = user.priority ? user.priority.split(',') : [];
-    const currentRole = user.role || '—';
+    const currentPrio  = user.priority ? user.priority.split(',') : [];
+    const currentRole  = user.role || '—';
+    const currentStawk = user.stawka ? `${user.stawka} zł/h` : '—';
 
     const text =
       `👤 <b>${user.reg_name || userName(user)}</b>\n` +
       `📞 ${user.reg_phone || '—'}\n` +
       `🪪 ${user.reg_pesel || '—'}\n` +
       `⭐ Priorytet: <b>${currentPrio.length ? currentPrio.join(', ') : '—'}</b>\n` +
-      `🍽 Rola: <b>${currentRole}</b>\n\n` +
+      `🍽 Rola: <b>${currentRole}</b>\n` +
+      `💰 Stawka: <b>${currentStawk}</b>\n\n` +
       `Wybierz co chcesz zmienić:`;
 
     await ctx.editMessageText(text, {
@@ -252,7 +254,8 @@ function registerAdminCommands(bot) {
         inline_keyboard: [
           [{ text: '⭐ Zmień priorytet', callback_data: `ap:editprio:${uid}` }],
           [{ text: '🍽 Zmień rolę',      callback_data: `ap:editrole:${uid}` }],
-          [{ text: '⬅️ Wróć',            callback_data: 'ap:users'           }],
+          [{ text: '💰 Zmień stawkę',    callback_data: `ap:editstawka:${uid}` }],
+          [{ text: '⬅️ Wróć',            callback_data: 'ap:users'            }],
         ],
       },
     });
@@ -330,6 +333,46 @@ function registerAdminCommands(bot) {
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '⬅️ Do pracownika', callback_data: `ap:user:${uid}` }]] } }
     );
     await ctx.answerCbQuery('✅ Zapisano');
+  });
+
+  // Stawka edit
+  bot.action(/^ap:editstawka:(\d+)$/, adminOnly, async (ctx) => {
+    const uid  = parseInt(ctx.match[1], 10);
+    const user = getUser(uid);
+    if (!user) { await ctx.answerCbQuery(); return; }
+
+    ctx.session.awaitingStawka = uid;
+    await ctx.editMessageText(
+      `💰 <b>Stawka</b> — ${user.reg_name || userName(user)}\n\n` +
+      `Aktualna: <b>${user.stawka ? `${user.stawka} zł/h` : '—'}</b>\n\n` +
+      `Wpisz nową stawkę (np. <code>37.00</code>) lub /usun aby wyczyścić:`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '⬅️ Anuluj', callback_data: `ap:user:${uid}` }]] } }
+    );
+    await ctx.answerCbQuery();
+  });
+
+  // Receive stawka text input
+  bot.hears(/^[\d]+([.,][\d]{1,2})?$/, adminOnly, async (ctx) => {
+    const uid = ctx.session?.awaitingStawka;
+    if (!uid) return;
+    const val = parseFloat(ctx.message.text.replace(',', '.'));
+    if (isNaN(val) || val < 0) return ctx.reply('⚠️ Nieprawidłowa wartość.');
+    setStawka(uid, val);
+    ctx.session.awaitingStawka = null;
+    const user = getUser(uid);
+    await ctx.reply(
+      `✅ Stawka <b>${val} zł/h</b> zapisana dla <b>${user.reg_name || userName(user)}</b>`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '⬅️ Do pracownika', callback_data: `ap:user:${uid}` }]] } }
+    );
+  });
+
+  bot.command('usun', adminOnly, async (ctx) => {
+    const uid = ctx.session?.awaitingStawka;
+    if (!uid) return;
+    setStawka(uid, null);
+    ctx.session.awaitingStawka = null;
+    const user = getUser(uid);
+    await ctx.reply(`✅ Stawka usunięta dla <b>${user.reg_name || userName(user)}</b>`, { parse_mode: 'HTML' });
   });
 
   // ── Text commands (kept for power users) ────────────────────────────────

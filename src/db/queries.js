@@ -67,6 +67,10 @@ function setRole(userId, role) {
   getDb().prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
 }
 
+function setStawka(userId, stawka) {
+  getDb().prepare('UPDATE users SET stawka = ? WHERE id = ?').run(stawka, userId);
+}
+
 function setRegistration(userId, { reg_name, reg_phone, reg_pesel, gender }) {
   getDb().prepare(
     'UPDATE users SET reg_name = ?, reg_phone = ?, reg_pesel = ?, gender = ? WHERE id = ?'
@@ -311,7 +315,7 @@ function setSetting(key, value) {
 
 module.exports = {
   upsertUser, getUser, isAdmin, isBanned, setBanned, setAdmin, getAllUsers, getAllAdminIds,
-  setGender, getGender, setRegistration, isRegistered, setPriority, setRole,
+  setGender, getGender, setRegistration, isRegistered, setPriority, setRole, setStawka,
   createShift, getShift, getAllShifts, updateShift, deleteShift, setShiftMessage,
   joinShift, approveParticipant, rejectParticipant, leaveShift,
   getParticipants, isParticipant, getParticipantStatus, getParticipantRow,

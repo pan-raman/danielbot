@@ -1,6 +1,7 @@
 const path = require('path');
 const fs   = require('fs');
 const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 const { getDb } = require('../db/database');
 const { isAdmin } = require('../db/queries');
 
@@ -40,7 +41,8 @@ function workerReport(year, month) {
     SELECT
       u.id AS user_id,
       COALESCE(sp.snap_name, u.reg_name, u.first_name) AS name,
-      s.date, s.start_time, s.end_time, s.location, s.stawka,
+      u.stawka AS user_stawka,
+      s.date, s.start_time, s.end_time, s.location,
       sp.started_at, sp.ended_at
     FROM shift_participants sp
     JOIN users u ON u.id = sp.user_id
@@ -73,7 +75,7 @@ function workerReport(year, month) {
       totalMins += mins;
 
       const hours = mins / 60;
-      const earn  = s.stawka ? hours * s.stawka : null;
+      const earn  = s.user_stawka ? hours * s.user_stawka : null;
       if (earn) totalEarnings += earn;
 
       const earnStr = earn ? ` = ${earn.toFixed(2)} zł` : '';
@@ -167,27 +169,20 @@ function clientReport(year, month) {
   return text;
 }
 
-// ── Excel generation ──────────────────────────────────────────────────────────
+// ── Workers Excel (styled) ────────────────────────────────────────────────────
 
-function generateExcel(year, month) {
+async function generateExcel(year, month) {
   const db = getDb();
   const { from, to } = monthRange(year, month);
 
-  const wb = XLSX.utils.book_new();
-
-  // ── Sheet 1: Workers ──────────────────────────────────────────────────────
-
-  const workerRows = db.prepare(`
+  const rows = db.prepare(`
     SELECT
-      COALESCE(sp.snap_name, u.reg_name, u.first_name) AS pracownik,
-      COALESCE(sp.snap_phone, u.reg_phone, '') AS telefon,
-      s.date AS data,
-      s.location AS miejsce,
-      s.start_time AS plan_start,
-      s.end_time AS plan_end,
-      sp.started_at AS real_start,
-      sp.ended_at AS real_end,
-      s.stawka
+      u.id AS user_id,
+      COALESCE(sp.snap_name, u.reg_name, u.first_name) AS name,
+      COALESCE(sp.snap_phone, u.reg_phone, '') AS phone,
+      u.stawka AS user_stawka,
+      s.date, s.location, s.start_time, s.end_time,
+      sp.started_at, sp.ended_at
     FROM shift_participants sp
     JOIN users u ON u.id = sp.user_id
     JOIN shifts s ON s.id = sp.shift_id
@@ -195,32 +190,171 @@ function generateExcel(year, month) {
     ORDER BY u.id, s.date
   `).all(from, to);
 
-  const wsWorkers = workerRows.map(r => {
-    const sm   = toMins(r.real_start || r.plan_start);
-    const em   = toMins(r.real_end   || r.plan_end);
-    const mins = Math.max(0, em - sm);
-    const hrs  = parseFloat((mins / 60).toFixed(2));
-    const earn = r.stawka ? parseFloat((hrs * r.stawka).toFixed(2)) : '';
+  // Group by worker
+  const workers = {};
+  for (const r of rows) {
+    if (!workers[r.user_id]) {
+      workers[r.user_id] = { name: r.name, phone: r.phone, stawka: r.user_stawka, shifts: [] };
+    }
+    workers[r.user_id].shifts.push(r);
+  }
 
-    return {
-      'Pracownik':      r.pracownik,
-      'Telefon':        r.telefon,
-      'Data':           r.data,
-      'Miejsce':        r.miejsce,
-      'Plan start':     r.plan_start,
-      'Plan koniec':    r.plan_end,
-      'Real start':     r.real_start || '',
-      'Real koniec':    r.real_end   || '',
-      'Godziny':        hrs,
-      'Stawka (zł/h)':  r.stawka || '',
-      'Zarobek (zł)':   earn,
+  const wb   = new ExcelJS.Workbook();
+  const ws   = wb.addWorksheet('Pracownicy');
+
+  const DARK   = 'FF2F2F2F';
+  const GRAY   = 'FF808080';
+  const LGRAY  = 'FFD9D9D9';
+  const GREEN  = 'FF4CAF50';
+  const WHITE  = 'FFFFFFFF';
+  const YELLOW = 'FFFFF9C4';
+
+  ws.columns = [
+    { key: 'lp',       width: 5  },
+    { key: 'data',     width: 12 },
+    { key: 'miejsce',  width: 28 },
+    { key: 'plan',     width: 14 },
+    { key: 'real',     width: 14 },
+    { key: 'godz',     width: 10 },
+    { key: 'stawka',   width: 12 },
+    { key: 'wartosc',  width: 14 },
+  ];
+
+  function applyBorder(cell) {
+    cell.border = {
+      top:    { style: 'thin', color: { argb: 'FFBDBDBD' } },
+      bottom: { style: 'thin', color: { argb: 'FFBDBDBD' } },
+      left:   { style: 'thin', color: { argb: 'FFBDBDBD' } },
+      right:  { style: 'thin', color: { argb: 'FFBDBDBD' } },
     };
+  }
+
+  function setCell(row, col, value, opts = {}) {
+    const cell = ws.getCell(row, col);
+    cell.value = value;
+    cell.font  = { name: 'Arial', size: opts.size || 10, bold: opts.bold || false, color: { argb: opts.color || 'FF000000' } };
+    cell.alignment = { horizontal: opts.align || 'center', vertical: 'middle', wrapText: !!opts.wrap };
+    if (opts.bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.bg } };
+    if (opts.numFmt) cell.numFmt = opts.numFmt;
+    applyBorder(cell);
+    return cell;
+  }
+
+  // ── Global header ─────────────────────────────────────────────────────────
+  ws.mergeCells('A1:H1');
+  const titleCell = ws.getCell('A1');
+  titleCell.value = `Raport pracowników — ${monthName(month)} ${year}`;
+  titleCell.font  = { name: 'Arial', size: 13, bold: true, color: { argb: WHITE } };
+  titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: DARK } };
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(1).height = 28;
+
+  // ── Column headers ────────────────────────────────────────────────────────
+  ws.getRow(2).height = 18;
+  const headers = ['#', 'Data', 'Miejsce', 'Plan', 'Rzeczywisty', 'Godziny', 'Stawka', 'Wartość'];
+  headers.forEach((h, i) => {
+    setCell(2, i + 1, h, { bold: true, bg: GRAY, color: WHITE });
   });
 
-  const ws1 = XLSX.utils.json_to_sheet(wsWorkers.length ? wsWorkers : [{ 'Brak danych': '' }]);
-  XLSX.utils.book_append_sheet(wb, ws1, 'Pracownicy');
+  let currentRow = 3;
+  let grandTotalMins = 0;
+  let grandTotalEarn = 0;
 
-  // ── Sheet 2: Clients ──────────────────────────────────────────────────────
+  for (const [, w] of Object.entries(workers)) {
+    // Worker name header row
+    ws.mergeCells(`A${currentRow}:D${currentRow}`);
+    const nameCell = ws.getCell(`A${currentRow}`);
+    nameCell.value = `👤  ${w.name}${w.phone ? `   📞 ${w.phone}` : ''}`;
+    nameCell.font  = { name: 'Arial', size: 11, bold: true, color: { argb: WHITE } };
+    nameCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: DARK } };
+    nameCell.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    nameCell.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'medium' }, right: { style: 'thin', color: { argb: LGRAY } } };
+
+    ws.mergeCells(`E${currentRow}:F${currentRow}`);
+    const rateLabel = ws.getCell(`E${currentRow}`);
+    rateLabel.value = w.stawka ? `Stawka: ${w.stawka} zł/h` : '';
+    rateLabel.font  = { name: 'Arial', size: 10, italic: true, color: { argb: 'FFEEEEEE' } };
+    rateLabel.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: DARK } };
+    rateLabel.alignment = { horizontal: 'right', vertical: 'middle' };
+
+    ws.mergeCells(`G${currentRow}:H${currentRow}`);
+    const emptyRight = ws.getCell(`G${currentRow}`);
+    emptyRight.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: DARK } };
+
+    ws.getRow(currentRow).height = 22;
+    currentRow++;
+
+    let workerTotalMins = 0;
+    let workerTotalEarn = 0;
+
+    w.shifts.forEach((s, idx) => {
+      const sm   = toMins(s.started_at || s.start_time);
+      const em   = toMins(s.ended_at   || s.end_time);
+      const mins = Math.max(0, em - sm);
+      const hrs  = parseFloat((mins / 60).toFixed(2));
+      const earn = w.stawka ? parseFloat((hrs * w.stawka).toFixed(2)) : null;
+
+      workerTotalMins += mins;
+      if (earn) workerTotalEarn += earn;
+
+      const bg   = idx % 2 === 0 ? WHITE : 'FFF5F5F5';
+      const plan = `${s.start_time}–${s.end_time}`;
+      const real = (s.started_at && s.ended_at) ? `${s.started_at}–${s.ended_at}` : '—';
+
+      setCell(currentRow, 1, idx + 1,   { bg, align: 'center' });
+      setCell(currentRow, 2, s.date,    { bg, align: 'center' });
+      setCell(currentRow, 3, s.location,{ bg, align: 'left'   });
+      setCell(currentRow, 4, plan,      { bg, align: 'center' });
+      setCell(currentRow, 5, real,      { bg, align: 'center', color: s.started_at ? 'FF2E7D32' : 'FF9E9E9E' });
+      setCell(currentRow, 6, hrs || '—',{ bg, align: 'center', numFmt: hrs ? '#,##0.0' : null });
+      setCell(currentRow, 7, w.stawka || '—', { bg, align: 'center', numFmt: w.stawka ? '#,##0.00' : null });
+      setCell(currentRow, 8, earn || '—', { bg, align: 'center', numFmt: earn ? '#,##0.00' : null });
+
+      ws.getRow(currentRow).height = 16;
+      currentRow++;
+    });
+
+    // Worker subtotal
+    const subHrs  = parseFloat((workerTotalMins / 60).toFixed(2));
+    const subEarn = workerTotalEarn > 0 ? parseFloat(workerTotalEarn.toFixed(2)) : null;
+
+    ws.mergeCells(`A${currentRow}:E${currentRow}`);
+    setCell(currentRow, 1, `Razem: ${w.name}`, { bold: true, bg: LGRAY, align: 'left' });
+    setCell(currentRow, 6, subHrs,  { bold: true, bg: LGRAY, numFmt: '#,##0.0' });
+    setCell(currentRow, 7, '',      { bg: LGRAY });
+    setCell(currentRow, 8, subEarn || '—', { bold: true, bg: subEarn ? YELLOW : LGRAY, numFmt: subEarn ? '#,##0.00' : null });
+    ws.getRow(currentRow).height = 18;
+    currentRow++;
+
+    // Gap row
+    ws.getRow(currentRow).height = 8;
+    currentRow++;
+
+    grandTotalMins += workerTotalMins;
+    grandTotalEarn += workerTotalEarn;
+  }
+
+  // ── Grand total ───────────────────────────────────────────────────────────
+  const totalHrs  = parseFloat((grandTotalMins / 60).toFixed(2));
+  const totalEarn = grandTotalEarn > 0 ? parseFloat(grandTotalEarn.toFixed(2)) : null;
+
+  ws.mergeCells(`A${currentRow}:E${currentRow}`);
+  setCell(currentRow, 1, 'RAZEM ZA MIESIĄC', { bold: true, bg: GREEN, color: WHITE, align: 'left', size: 11 });
+  setCell(currentRow, 6, totalHrs,  { bold: true, bg: GREEN, color: WHITE, numFmt: '#,##0.0', size: 11 });
+  setCell(currentRow, 7, '',        { bg: GREEN });
+  setCell(currentRow, 8, totalEarn || '—', { bold: true, bg: GREEN, color: WHITE, numFmt: totalEarn ? '#,##0.00' : null, size: 11 });
+  ws.getRow(currentRow).height = 24;
+
+  const tmpPath = path.join('/tmp', `raport_pracownicy_${year}_${month}_${Date.now()}.xlsx`);
+  await wb.xlsx.writeFile(tmpPath);
+  return tmpPath;
+}
+
+// ── Client Excel (styled, per location) ──────────────────────────────────────
+
+async function generateClientExcel(year, month) {
+  const db = getDb();
+  const { from, to } = monthRange(year, month);
 
   const shifts = db.prepare(`
     SELECT s.id, s.date, s.location, s.start_time, s.end_time, s.stawka
@@ -232,6 +366,7 @@ function generateExcel(year, month) {
   const allPart = db.prepare(`
     SELECT sp.shift_id,
            COALESCE(sp.snap_name, u.reg_name, u.first_name) AS name,
+           u.stawka AS user_stawka,
            sp.started_at, sp.ended_at
     FROM shift_participants sp
     JOIN users u ON u.id = sp.user_id
@@ -244,36 +379,133 @@ function generateExcel(year, month) {
     pMap[p.shift_id].push(p);
   }
 
-  const clientRows = [];
+  // Group by location
+  const locations = {};
   for (const s of shifts) {
-    const ps = pMap[s.id] || [];
-    let totalMins = 0;
-    for (const p of ps) {
-      totalMins += Math.max(0, toMins(p.ended_at || s.end_time) - toMins(p.started_at || s.start_time));
-    }
-    const hrs  = parseFloat((totalMins / 60).toFixed(2));
-    const earn = s.stawka ? parseFloat((hrs * s.stawka).toFixed(2)) : '';
-
-    clientRows.push({
-      'Data':           s.date,
-      'Miejsce':        s.location,
-      'Start':          s.start_time,
-      'Koniec':         s.end_time,
-      'Liczba osób':    ps.length,
-      'Pracownicy':     ps.map(p => p.name).join(', '),
-      'Godziny łącznie': hrs,
-      'Stawka (zł/h)':  s.stawka || '',
-      'Koszt (zł)':     earn,
-    });
+    if (!locations[s.location]) locations[s.location] = [];
+    locations[s.location].push(s);
   }
 
-  const ws2 = XLSX.utils.json_to_sheet(clientRows.length ? clientRows : [{ 'Brak danych': '' }]);
-  XLSX.utils.book_append_sheet(wb, ws2, 'Klienci');
+  const wb = new ExcelJS.Workbook();
 
-  // ── Save temp file ────────────────────────────────────────────────────────
+  const GRAY   = 'FF808080';
+  const WHITE  = 'FFFFFFFF';
+  const LIGHT  = 'FFD9D9D9';
+  const BLACK  = 'FF000000';
 
-  const tmpPath = path.join('/tmp', `raport_${year}_${month}_${Date.now()}.xlsx`);
-  XLSX.writeFile(wb, tmpPath);
+  function hCell(ws, row, col, value, bgColor = GRAY, fontColor = WHITE, bold = true) {
+    const cell = ws.getCell(row, col);
+    cell.value = value;
+    cell.font  = { bold, color: { argb: fontColor }, name: 'Arial', size: 10 };
+    cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = {
+      top:    { style: 'thin' }, bottom: { style: 'thin' },
+      left:   { style: 'thin' }, right:  { style: 'thin' },
+    };
+    return cell;
+  }
+
+  function dCell(ws, row, col, value, bgColor = null, bold = false, numFmt = null) {
+    const cell = ws.getCell(row, col);
+    cell.value = value;
+    cell.font  = { bold, name: 'Arial', size: 10, color: { argb: BLACK } };
+    if (bgColor) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = {
+      top:    { style: 'thin' }, bottom: { style: 'thin' },
+      left:   { style: 'thin' }, right:  { style: 'thin' },
+    };
+    if (numFmt) cell.numFmt = numFmt;
+    return cell;
+  }
+
+  for (const [location, lShifts] of Object.entries(locations)) {
+    const ws = wb.addWorksheet(location.slice(0, 31)); // sheet name max 31 chars
+
+    ws.columns = [
+      { key: 'data',    width: 10 },
+      { key: 'nazwa',   width: 30 },
+      { key: 'stawka',  width: 12 },
+      { key: 'godziny', width: 14 },
+      { key: 'wartosc', width: 18 },
+    ];
+
+    // Row 1: Miesiac / Maj
+    ws.mergeCells('A1:B1'); hCell(ws, 1, 1, 'Miesiac');
+    ws.mergeCells('D1:E1'); hCell(ws, 1, 4, monthName(month));
+
+    // Row 2: Firma / Location
+    ws.mergeCells('A2:B2'); hCell(ws, 2, 1, 'Firma');
+    ws.mergeCells('D2:E2'); hCell(ws, 2, 4, location);
+
+    // Row 3: empty
+    ws.getRow(3).height = 8;
+
+    // Row 4: column headers
+    hCell(ws, 4, 1, 'Data',               GRAY, WHITE);
+    hCell(ws, 4, 2, 'Nazwa imprezy',       GRAY, WHITE);
+    hCell(ws, 4, 3, 'Stawka',              GRAY, WHITE);
+    hCell(ws, 4, 4, 'Godziny pracy',       GRAY, WHITE);
+    hCell(ws, 4, 5, 'Wartosc wg stawki',   GRAY, WHITE);
+
+    let dataRow = 5;
+    let totalMins = 0;
+    let totalEarn = 0;
+
+    for (const s of lShifts) {
+      const ps = pMap[s.id] || [];
+
+      // Calculate worker-hours and cost
+      let shiftMins = 0;
+      let shiftEarn = 0;
+      for (const p of ps) {
+        const sm = toMins(p.started_at || s.start_time);
+        const em = toMins(p.ended_at   || s.end_time);
+        const m  = Math.max(0, em - sm);
+        shiftMins += m;
+        if (p.user_stawka) shiftEarn += (m / 60) * p.user_stawka;
+      }
+
+      const hrs  = parseFloat((shiftMins / 60).toFixed(2));
+      const earn = shiftEarn > 0 ? parseFloat(shiftEarn.toFixed(2)) : null;
+
+      totalMins += shiftMins;
+      if (earn) totalEarn += earn;
+
+      // Date: show only day number
+      const dayNum = parseInt(s.date.split('-')[2], 10);
+
+      dCell(ws, dataRow, 1, dayNum);
+      dCell(ws, dataRow, 2, ps.map(p => p.name).join(', ') || '—');
+      dCell(ws, dataRow, 3, null, null, false, '#,##0.00');
+      dCell(ws, dataRow, 4, hrs > 0 ? hrs : null, null, false, '#,##0.0');
+      dCell(ws, dataRow, 5, earn || null, LIGHT, false, '#,##0.00');
+
+      dataRow++;
+    }
+
+    // Fill empty rows up to row 21 (like in the example)
+    while (dataRow <= 21) {
+      dCell(ws, dataRow, 1, null);
+      dCell(ws, dataRow, 2, null);
+      dCell(ws, dataRow, 3, null);
+      dCell(ws, dataRow, 4, null);
+      dCell(ws, dataRow, 5, null, LIGHT);
+      dataRow++;
+    }
+
+    // Summary row
+    const sumRow = dataRow;
+    ws.mergeCells(`A${sumRow}:C${sumRow}`);
+    hCell(ws, sumRow, 1, 'Razem za miesiąc', GRAY, WHITE, true);
+    dCell(ws, sumRow, 4, parseFloat((totalMins / 60).toFixed(1)), GRAY, true, '#,##0.0');
+    dCell(ws, sumRow, 5, parseFloat(totalEarn.toFixed(2)), GRAY, true, '#,##0.00');
+    ws.getRow(sumRow).font = { bold: true, name: 'Arial', size: 10, color: { argb: WHITE } };
+  }
+
+  const tmpPath = path.join('/tmp', `zalacznik_${year}_${month}_${Date.now()}.xlsx`);
+  await wb.xlsx.writeFile(tmpPath);
   return tmpPath;
 }
 
@@ -295,8 +527,11 @@ function registerReportCommand(bot) {
       let y = year;
       if (m <= 0) { m += 12; y -= 1; }
       rows.push([
-        { text: `${monthName(m)} ${y} — Pracownicy`, callback_data: `rpt:w:${y}:${m}` },
-        { text: `📥 Excel ${monthName(m)} ${y}`,     callback_data: `rpt:xls:${y}:${m}` },
+        { text: `${monthName(m)} ${y} — Pracownicy`,   callback_data: `rpt:w:${y}:${m}`   },
+        { text: `📥 Excel ${monthName(m)} ${y}`,        callback_data: `rpt:xls:${y}:${m}` },
+      ]);
+      rows.push([
+        { text: `📋 Załącznik klienta ${monthName(m)} ${y}`, callback_data: `rpt:cli:${y}:${m}` },
       ]);
     }
 
@@ -334,7 +569,7 @@ function registerReportCommand(bot) {
     const year  = parseInt(ctx.match[1], 10);
     const month = parseInt(ctx.match[2], 10);
 
-    const filePath = generateExcel(year, month);
+    const filePath = await generateExcel(year, month);
 
     try {
       await ctx.replyWithDocument(
@@ -345,9 +580,26 @@ function registerReportCommand(bot) {
       try { fs.unlinkSync(filePath); } catch {}
     }
   });
-}
+  // Client Excel — per location, styled
+  bot.action(/^rpt:cli:(\d{4}):(\d{1,2})$/, async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return ctx.answerCbQuery('⛔ Admin only.');
+    await ctx.answerCbQuery('Generuję załącznik…');
 
-function splitMessage(text, maxLen = 4000) {
+    const year  = parseInt(ctx.match[1], 10);
+    const month = parseInt(ctx.match[2], 10);
+
+    const filePath = await generateClientExcel(year, month);
+
+    try {
+      await ctx.replyWithDocument(
+        { source: filePath, filename: `zalacznik_${year}_${String(month).padStart(2,'0')}.xlsx` },
+        { caption: `📋 Załącznik klientów — ${monthName(month)} ${year}` }
+      );
+    } finally {
+      try { fs.unlinkSync(filePath); } catch {}
+    }
+  });
+}
   if (text.length <= maxLen) return [text];
   const chunks = [];
   let current = '';

@@ -89,6 +89,7 @@ function migrate(db) {
   if (!userCols.includes('reg_pesel'))     db.exec('ALTER TABLE users ADD COLUMN reg_pesel TEXT');
   if (!userCols.includes('priority'))      db.exec('ALTER TABLE users ADD COLUMN priority TEXT');
   if (!userCols.includes('role'))          db.exec('ALTER TABLE users ADD COLUMN role TEXT');
+  if (!userCols.includes('stawka'))        db.exec('ALTER TABLE users ADD COLUMN stawka REAL');
 
   const spCols = db.pragma('table_info(shift_participants)').map(c => c.name);
   if (!spCols.includes('status'))        db.exec("ALTER TABLE shift_participants ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'");
