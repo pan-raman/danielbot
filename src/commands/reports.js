@@ -199,8 +199,8 @@ async function generateExcel(year, month) {
     workers[r.user_id].shifts.push(r);
   }
 
-  const wb   = new ExcelJS.Workbook();
-  const ws   = wb.addWorksheet('Pracownicy');
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Pracownicy');
 
   const DARK   = 'FF2F2F2F';
   const GRAY   = 'FF808080';
@@ -208,16 +208,21 @@ async function generateExcel(year, month) {
   const GREEN  = 'FF4CAF50';
   const WHITE  = 'FFFFFFFF';
   const YELLOW = 'FFFFF9C4';
+  const RED    = 'FFFFCDD2';  // light red background for late
+  const REDFNT = 'FFC62828';  // dark red font
 
+  // 10 columns: # | Data | Miejsce | Plan | Rzeczywisty | Godz.plan | Godz.rzecz | Wartość plan | Wartość rzecz | Opóźnienie
   ws.columns = [
     { key: 'lp',       width: 5  },
     { key: 'data',     width: 12 },
-    { key: 'miejsce',  width: 28 },
-    { key: 'plan',     width: 14 },
-    { key: 'real',     width: 14 },
-    { key: 'godz',     width: 10 },
-    { key: 'stawka',   width: 12 },
-    { key: 'wartosc',  width: 14 },
+    { key: 'miejsce',  width: 26 },
+    { key: 'plan',     width: 13 },
+    { key: 'real',     width: 13 },
+    { key: 'hplan',    width: 11 },
+    { key: 'hreal',    width: 11 },
+    { key: 'wplan',    width: 13 },
+    { key: 'wreal',    width: 13 },
+    { key: 'opozn',    width: 11 },
   ];
 
   function applyBorder(cell) {
@@ -241,7 +246,7 @@ async function generateExcel(year, month) {
   }
 
   // ── Global header ─────────────────────────────────────────────────────────
-  ws.mergeCells('A1:H1');
+  ws.mergeCells('A1:J1');
   const titleCell = ws.getCell('A1');
   titleCell.value = `Raport pracowników — ${monthName(month)} ${year}`;
   titleCell.font  = { name: 'Arial', size: 13, bold: true, color: { argb: WHITE } };
@@ -251,18 +256,20 @@ async function generateExcel(year, month) {
 
   // ── Column headers ────────────────────────────────────────────────────────
   ws.getRow(2).height = 18;
-  const headers = ['#', 'Data', 'Miejsce', 'Plan', 'Rzeczywisty', 'Godziny', 'Stawka', 'Wartość'];
+  const headers = ['#', 'Data', 'Miejsce', 'Plan', 'Rzeczywisty', 'Godz. plan', 'Godz. rzecz.', 'Wartość plan', 'Wartość rzecz.', 'Opóźnienie'];
   headers.forEach((h, i) => {
     setCell(2, i + 1, h, { bold: true, bg: GRAY, color: WHITE });
   });
 
   let currentRow = 3;
-  let grandTotalMins = 0;
-  let grandTotalEarn = 0;
+  let grandPlanMins = 0;
+  let grandRealMins = 0;
+  let grandPlanEarn = 0;
+  let grandRealEarn = 0;
 
   for (const [, w] of Object.entries(workers)) {
     // Worker name header row
-    ws.mergeCells(`A${currentRow}:D${currentRow}`);
+    ws.mergeCells(`A${currentRow}:E${currentRow}`);
     const nameCell = ws.getCell(`A${currentRow}`);
     nameCell.value = `👤  ${w.name}${w.phone ? `   📞 ${w.phone}` : ''}`;
     nameCell.font  = { name: 'Arial', size: 11, bold: true, color: { argb: WHITE } };
@@ -270,59 +277,81 @@ async function generateExcel(year, month) {
     nameCell.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
     nameCell.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'medium' }, right: { style: 'thin', color: { argb: LGRAY } } };
 
-    ws.mergeCells(`E${currentRow}:F${currentRow}`);
-    const rateLabel = ws.getCell(`E${currentRow}`);
+    ws.mergeCells(`F${currentRow}:J${currentRow}`);
+    const rateLabel = ws.getCell(`F${currentRow}`);
     rateLabel.value = w.stawka ? `Stawka: ${w.stawka} zł/h` : '';
     rateLabel.font  = { name: 'Arial', size: 10, italic: true, color: { argb: 'FFEEEEEE' } };
     rateLabel.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: DARK } };
     rateLabel.alignment = { horizontal: 'right', vertical: 'middle' };
 
-    ws.mergeCells(`G${currentRow}:H${currentRow}`);
-    const emptyRight = ws.getCell(`G${currentRow}`);
-    emptyRight.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: DARK } };
-
     ws.getRow(currentRow).height = 22;
     currentRow++;
 
-    let workerTotalMins = 0;
-    let workerTotalEarn = 0;
+    let wPlanMins = 0;
+    let wRealMins = 0;
+    let wPlanEarn = 0;
+    let wRealEarn = 0;
 
     w.shifts.forEach((s, idx) => {
-      const sm   = toMins(s.started_at || s.start_time);
-      const em   = toMins(s.ended_at   || s.end_time);
-      const mins = Math.max(0, em - sm);
-      const hrs  = parseFloat((mins / 60).toFixed(2));
-      const earn = w.stawka ? parseFloat((hrs * w.stawka).toFixed(2)) : null;
+      // Plan hours
+      const planSm   = toMins(s.start_time);
+      const planEm   = toMins(s.end_time);
+      const planMins = Math.max(0, planEm - planSm);
+      const planHrs  = parseFloat((planMins / 60).toFixed(2));
+      const planEarn = w.stawka ? parseFloat((planHrs * w.stawka).toFixed(2)) : null;
 
-      workerTotalMins += mins;
-      if (earn) workerTotalEarn += earn;
+      // Real hours
+      const realSm   = s.started_at ? toMins(s.started_at) : null;
+      const realEm   = s.ended_at   ? toMins(s.ended_at)   : null;
+      const realMins = (realSm !== null && realEm !== null) ? Math.max(0, realEm - realSm) : null;
+      const realHrs  = realMins !== null ? parseFloat((realMins / 60).toFixed(2)) : null;
+      const realEarn = (w.stawka && realHrs !== null) ? parseFloat((realHrs * w.stawka).toFixed(2)) : null;
 
-      const bg   = idx % 2 === 0 ? WHITE : 'FFF5F5F5';
-      const plan = `${s.start_time}–${s.end_time}`;
-      const real = (s.started_at && s.ended_at) ? `${s.started_at}–${s.ended_at}` : '—';
+      // Late check: started_at > start_time
+      const isLate = s.started_at && toMins(s.started_at) > toMins(s.start_time);
+      const lateMin = isLate ? toMins(s.started_at) - toMins(s.start_time) : 0;
 
-      setCell(currentRow, 1, idx + 1,   { bg, align: 'center' });
-      setCell(currentRow, 2, s.date,    { bg, align: 'center' });
-      setCell(currentRow, 3, s.location,{ bg, align: 'left'   });
-      setCell(currentRow, 4, plan,      { bg, align: 'center' });
-      setCell(currentRow, 5, real,      { bg, align: 'center', color: s.started_at ? 'FF2E7D32' : 'FF9E9E9E' });
-      setCell(currentRow, 6, hrs || '—',{ bg, align: 'center', numFmt: hrs ? '#,##0.0' : null });
-      setCell(currentRow, 7, w.stawka || '—', { bg, align: 'center', numFmt: w.stawka ? '#,##0.00' : null });
-      setCell(currentRow, 8, earn || '—', { bg, align: 'center', numFmt: earn ? '#,##0.00' : null });
+      wPlanMins += planMins;
+      if (realMins !== null) wRealMins += realMins;
+      if (planEarn) wPlanEarn += planEarn;
+      if (realEarn) wRealEarn += realEarn;
+
+      const bg      = isLate ? RED : (idx % 2 === 0 ? WHITE : 'FFF5F5F5');
+      const txtColor = isLate ? REDFNT : 'FF000000';
+      const planStr  = `${s.start_time}–${s.end_time}`;
+      const realStr  = (s.started_at && s.ended_at) ? `${s.started_at}–${s.ended_at}` : '—';
+      const lateStr  = isLate ? `+${lateMin} min` : '';
+
+      setCell(currentRow, 1,  idx + 1,        { bg, align: 'center', color: txtColor });
+      setCell(currentRow, 2,  s.date,          { bg, align: 'center', color: txtColor });
+      setCell(currentRow, 3,  s.location,      { bg, align: 'left',   color: txtColor });
+      setCell(currentRow, 4,  planStr,         { bg, align: 'center', color: txtColor });
+      setCell(currentRow, 5,  realStr,         { bg, align: 'center', color: isLate ? REDFNT : (s.started_at ? 'FF2E7D32' : 'FF9E9E9E') });
+      setCell(currentRow, 6,  planHrs,         { bg, align: 'center', numFmt: '#,##0.0', color: txtColor });
+      setCell(currentRow, 7,  realHrs ?? '—',  { bg, align: 'center', numFmt: realHrs ? '#,##0.0' : null, color: isLate ? REDFNT : 'FF2E7D32' });
+      setCell(currentRow, 8,  planEarn ?? '—', { bg, align: 'center', numFmt: planEarn ? '#,##0.00' : null, color: txtColor });
+      setCell(currentRow, 9,  realEarn ?? '—', { bg, align: 'center', numFmt: realEarn ? '#,##0.00' : null, color: isLate ? REDFNT : 'FF2E7D32' });
+      setCell(currentRow, 10, lateStr,         { bg: isLate ? RED : bg, align: 'center', bold: isLate, color: isLate ? REDFNT : txtColor });
 
       ws.getRow(currentRow).height = 16;
       currentRow++;
     });
 
     // Worker subtotal
-    const subHrs  = parseFloat((workerTotalMins / 60).toFixed(2));
-    const subEarn = workerTotalEarn > 0 ? parseFloat(workerTotalEarn.toFixed(2)) : null;
+    const subPlanHrs  = parseFloat((wPlanMins / 60).toFixed(2));
+    const subRealHrs  = parseFloat((wRealMins / 60).toFixed(2));
+    const subPlanEarn = wPlanEarn > 0 ? parseFloat(wPlanEarn.toFixed(2)) : null;
+    const subRealEarn = wRealEarn > 0 ? parseFloat(wRealEarn.toFixed(2)) : null;
 
-    ws.mergeCells(`A${currentRow}:E${currentRow}`);
-    setCell(currentRow, 1, `Razem: ${w.name}`, { bold: true, bg: LGRAY, align: 'left' });
-    setCell(currentRow, 6, subHrs,  { bold: true, bg: LGRAY, numFmt: '#,##0.0' });
-    setCell(currentRow, 7, '',      { bg: LGRAY });
-    setCell(currentRow, 8, subEarn || '—', { bold: true, bg: subEarn ? YELLOW : LGRAY, numFmt: subEarn ? '#,##0.00' : null });
+    ws.mergeCells(`A${currentRow}:C${currentRow}`);
+    setCell(currentRow, 1,  `Razem: ${w.name}`, { bold: true, bg: LGRAY, align: 'left' });
+    setCell(currentRow, 4,  '',              { bg: LGRAY });
+    setCell(currentRow, 5,  '',              { bg: LGRAY });
+    setCell(currentRow, 6,  subPlanHrs,      { bold: true, bg: LGRAY, numFmt: '#,##0.0' });
+    setCell(currentRow, 7,  subRealHrs || '—', { bold: true, bg: LGRAY, numFmt: '#,##0.0' });
+    setCell(currentRow, 8,  subPlanEarn || '—', { bold: true, bg: YELLOW, numFmt: subPlanEarn ? '#,##0.00' : null });
+    setCell(currentRow, 9,  subRealEarn || '—', { bold: true, bg: YELLOW, numFmt: subRealEarn ? '#,##0.00' : null });
+    setCell(currentRow, 10, '', { bg: LGRAY });
     ws.getRow(currentRow).height = 18;
     currentRow++;
 
@@ -330,19 +359,27 @@ async function generateExcel(year, month) {
     ws.getRow(currentRow).height = 8;
     currentRow++;
 
-    grandTotalMins += workerTotalMins;
-    grandTotalEarn += workerTotalEarn;
+    grandPlanMins += wPlanMins;
+    grandRealMins += wRealMins;
+    grandPlanEarn += wPlanEarn;
+    grandRealEarn += wRealEarn;
   }
 
   // ── Grand total ───────────────────────────────────────────────────────────
-  const totalHrs  = parseFloat((grandTotalMins / 60).toFixed(2));
-  const totalEarn = grandTotalEarn > 0 ? parseFloat(grandTotalEarn.toFixed(2)) : null;
+  const totPlanHrs  = parseFloat((grandPlanMins / 60).toFixed(2));
+  const totRealHrs  = parseFloat((grandRealMins / 60).toFixed(2));
+  const totPlanEarn = grandPlanEarn > 0 ? parseFloat(grandPlanEarn.toFixed(2)) : null;
+  const totRealEarn = grandRealEarn > 0 ? parseFloat(grandRealEarn.toFixed(2)) : null;
 
-  ws.mergeCells(`A${currentRow}:E${currentRow}`);
-  setCell(currentRow, 1, 'RAZEM ZA MIESIĄC', { bold: true, bg: GREEN, color: WHITE, align: 'left', size: 11 });
-  setCell(currentRow, 6, totalHrs,  { bold: true, bg: GREEN, color: WHITE, numFmt: '#,##0.0', size: 11 });
-  setCell(currentRow, 7, '',        { bg: GREEN });
-  setCell(currentRow, 8, totalEarn || '—', { bold: true, bg: GREEN, color: WHITE, numFmt: totalEarn ? '#,##0.00' : null, size: 11 });
+  ws.mergeCells(`A${currentRow}:C${currentRow}`);
+  setCell(currentRow, 1,  'RAZEM ZA MIESIĄC', { bold: true, bg: GREEN, color: WHITE, align: 'left', size: 11 });
+  setCell(currentRow, 4,  '',                 { bg: GREEN });
+  setCell(currentRow, 5,  '',                 { bg: GREEN });
+  setCell(currentRow, 6,  totPlanHrs,         { bold: true, bg: GREEN, color: WHITE, numFmt: '#,##0.0', size: 11 });
+  setCell(currentRow, 7,  totRealHrs || '—',  { bold: true, bg: GREEN, color: WHITE, numFmt: '#,##0.0', size: 11 });
+  setCell(currentRow, 8,  totPlanEarn || '—', { bold: true, bg: GREEN, color: WHITE, numFmt: totPlanEarn ? '#,##0.00' : null, size: 11 });
+  setCell(currentRow, 9,  totRealEarn || '—', { bold: true, bg: GREEN, color: WHITE, numFmt: totRealEarn ? '#,##0.00' : null, size: 11 });
+  setCell(currentRow, 10, '',                 { bg: GREEN });
   ws.getRow(currentRow).height = 24;
 
   const tmpPath = path.join('/tmp', `raport_pracownicy_${year}_${month}_${Date.now()}.xlsx`);

@@ -51,7 +51,8 @@ const editProfileScene = new Scenes.WizardScene(
       await ctx.replyWithHTML('Wybierz płeć:', { reply_markup: GENDER_KEYBOARD });
     } else {
       const labels = { name: 'imię i nazwisko', phone: 'numer telefonu', pesel: 'PESEL' };
-      await ctx.replyWithHTML(`Podaj nowe <b>${labels[field]}</b>:\n\n/cancel — anuluj`);
+      const hint   = field === 'phone' ? '\n\n(format: <code>+48 888 888 888</code>)' : '';
+      await ctx.replyWithHTML(`Podaj nowe <b>${labels[field]}</b>${hint}:\n\n/cancel — anuluj`);
     }
     return ctx.wizard.next();
   },
@@ -73,8 +74,8 @@ const editProfileScene = new Scenes.WizardScene(
     } else if (ctx.message?.text) {
       const val = ctx.message.text.trim();
 
-      if (field === 'phone' && !/^[\d\s\+\-\(\)]{7,20}$/.test(val)) {
-        return ctx.reply('⚠️ Nieprawidłowy numer telefonu. Spróbuj ponownie:');
+      if (field === 'phone' && !/^\+48[\s\-]?\d{3}[\s\-]?\d{3}[\s\-]?\d{3}$/.test(val)) {
+        return ctx.replyWithHTML('⚠️ Wymagany format: <code>+48 888 888 888</code>\n\nSpróbuj ponownie:');
       }
       if (field === 'pesel' && !/^\d{11}$/.test(val)) {
         return ctx.reply('⚠️ PESEL musi składać się z 11 cyfr. Spróbuj ponownie:');

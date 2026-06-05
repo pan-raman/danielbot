@@ -34,7 +34,7 @@ const registrationScene = new Scenes.WizardScene(
   async (ctx) => {
     if (!ctx.message?.text) return;
     ctx.scene.state.data.lastName = ctx.message.text.trim();
-    await ctx.replyWithHTML('Krok 3/5 — Podaj swój <b>numer telefonu</b>:');
+    await ctx.replyWithHTML('Krok 3/5 — Podaj swój <b>numer telefonu</b>:\n\n(format: <code>+48 888 888 888</code>)');
     return ctx.wizard.next();
   },
 
@@ -42,8 +42,8 @@ const registrationScene = new Scenes.WizardScene(
   async (ctx) => {
     if (!ctx.message?.text) return;
     const phone = ctx.message.text.trim();
-    if (!/^[\d\s\+\-\(\)]{7,20}$/.test(phone)) {
-      return ctx.reply('⚠️ Nieprawidłowy numer telefonu. Spróbuj ponownie:');
+    if (!/^\+48[\s\-]?\d{3}[\s\-]?\d{3}[\s\-]?\d{3}$/.test(phone)) {
+      return ctx.replyWithHTML('⚠️ Nieprawidłowy numer. Wymagany format: <code>+48 888 888 888</code>\n\nSpróbuj ponownie:');
     }
     ctx.scene.state.data.phone = phone;
     await ctx.replyWithHTML('Krok 4/5 — Podaj swój <b>numer PESEL</b>:');

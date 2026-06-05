@@ -52,7 +52,7 @@ const createVirtualUserScene = new Scenes.WizardScene(
   async (ctx) => {
     if (!ctx.message?.text) return;
     ctx.scene.state.data.reg_name = ctx.message.text.trim();
-    await ctx.replyWithHTML('Krok 2/6 — Podaj <b>numer telefonu</b> lub /skip:');
+    await ctx.replyWithHTML('Krok 2/6 — Podaj <b>numer telefonu</b> lub /skip:\n\n(format: <code>+48 888 888 888</code>)');
     return ctx.wizard.next();
   },
 
@@ -61,7 +61,7 @@ const createVirtualUserScene = new Scenes.WizardScene(
     if (!ctx.message?.text) return;
     const raw = ctx.message.text.trim();
     if (raw !== '/skip') {
-      if (!/^[\d\s\+\-\(\)]{7,20}$/.test(raw)) return ctx.reply('⚠️ Nieprawidłowy numer. Spróbuj ponownie lub /skip:');
+      if (!/^\+48[\s\-]?\d{3}[\s\-]?\d{3}[\s\-]?\d{3}$/.test(raw)) return ctx.replyWithHTML('⚠️ Wymagany format: <code>+48 888 888 888</code>\n\nSpróbuj ponownie lub /skip:');
       ctx.scene.state.data.reg_phone = raw;
     }
     await ctx.replyWithHTML('Krok 3/6 — Podaj <b>PESEL</b> lub /skip:');
