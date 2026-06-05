@@ -600,6 +600,8 @@ function registerReportCommand(bot) {
     }
   });
 }
+
+function splitMessage(text, maxLen = 4000) {
   if (text.length <= maxLen) return [text];
   const chunks = [];
   let current = '';
