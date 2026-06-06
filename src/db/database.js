@@ -66,6 +66,10 @@ function migrate(db) {
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       shift_id   INTEGER NOT NULL,
       name       TEXT NOT NULL,
+      phone      TEXT,
+      pesel      TEXT,
+      started_at TEXT,
+      ended_at   TEXT,
       added_by   INTEGER NOT NULL,
       added_at   TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE
@@ -112,6 +116,12 @@ function migrate(db) {
   if (!spCols.includes('ended_at'))         db.exec('ALTER TABLE shift_participants ADD COLUMN ended_at TEXT');
   if (!spCols.includes('notified_start'))   db.exec('ALTER TABLE shift_participants ADD COLUMN notified_start INTEGER DEFAULT 0');
   if (!spCols.includes('notified_end'))     db.exec('ALTER TABLE shift_participants ADD COLUMN notified_end INTEGER DEFAULT 0');
+
+  const mpCols = db.pragma('table_info(shift_manual_participants)').map(c => c.name);
+  if (!mpCols.includes('phone'))      db.exec('ALTER TABLE shift_manual_participants ADD COLUMN phone TEXT');
+  if (!mpCols.includes('pesel'))      db.exec('ALTER TABLE shift_manual_participants ADD COLUMN pesel TEXT');
+  if (!mpCols.includes('started_at')) db.exec('ALTER TABLE shift_manual_participants ADD COLUMN started_at TEXT');
+  if (!mpCols.includes('ended_at'))   db.exec('ALTER TABLE shift_manual_participants ADD COLUMN ended_at TEXT');
 }
 
 module.exports = { getDb };

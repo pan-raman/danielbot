@@ -2,7 +2,7 @@ const { Scenes } = require('telegraf');
 const {
   getShift, getParticipants, getManualParticipants,
   addManualParticipant, removeManualParticipant, removeTgParticipant,
-  getAllVirtualUsers, getParticipantRow, setParticipantTime,
+  getAllVirtualUsers, getParticipantRow, setParticipantTime, setManualParticipantTime,
 } = require('../db/queries');
 const { shiftText, shiftKeyboard, userName, formatDate } = require('../helpers/format');
 
@@ -166,26 +166,38 @@ function registerParticipantCallbacks(bot) {
     );
   });
 
-  // Edit participant times
   bot.action(/^rmp:times:(\d+)$/, async (ctx) => {
     const shiftId = parseInt(ctx.match[1], 10);
     const shift   = getShift(shiftId);
-    const ps      = getParticipants(shiftId);
+    const tg      = getParticipants(shiftId);
+    const manual  = getManualParticipants(shiftId);
     await ctx.answerCbQuery();
 
-    if (!ps.length) {
-      return ctx.reply('Brak uczestników z Telegrama do edycji czasu.');
+    if (!tg.length && !manual.length) {
+      return ctx.reply('Brak uczestników do edycji czasu.');
     }
 
-    const rows = ps.map(u => {
-      const row = getParticipantRow(shiftId, u.id);
+    const rows = [];
+
+    for (const u of tg) {
+      const row   = getParticipantRow(shiftId, u.id);
       const start = row?.started_at || '—';
       const end   = row?.ended_at   || '—';
-      return [{
+      rows.push([{
         text: `${u.snap_name || u.reg_name || u.first_name}: ${start}→${end}`,
-        callback_data: `rmp:edittime:${shiftId}:${u.id}`,
-      }];
-    });
+        callback_data: `rmp:edittime:tg:${shiftId}:${u.id}`,
+      }]);
+    }
+
+    for (const m of manual) {
+      const start = m.started_at || '—';
+      const end   = m.ended_at   || '—';
+      rows.push([{
+        text: `${m.name}: ${start}→${end}`,
+        callback_data: `rmp:edittime:manual:${shiftId}:${m.id}`,
+      }]);
+    }
+
     rows.push([{ text: '⬅️ Wróć', callback_data: `ap:members:${shiftId}` }]);
 
     await ctx.replyWithHTML(
@@ -194,55 +206,77 @@ function registerParticipantCallbacks(bot) {
     );
   });
 
-  bot.action(/^rmp:edittime:(\d+):(\d+)$/, async (ctx) => {
-    const shiftId = parseInt(ctx.match[1], 10);
-    const userId  = parseInt(ctx.match[2], 10);
-    const row     = getParticipantRow(shiftId, userId);
+  bot.action(/^rmp:edittime:(tg|manual):(\d+):(\d+)$/, async (ctx) => {
+    const kind    = ctx.match[1];
+    const shiftId = parseInt(ctx.match[2], 10);
+    const id      = parseInt(ctx.match[3], 10);
     await ctx.answerCbQuery();
 
+    let start, end;
+    if (kind === 'tg') {
+      const row = getParticipantRow(shiftId, id);
+      start = row?.started_at || '—';
+      end   = row?.ended_at   || '—';
+    } else {
+      const manual = getManualParticipants(shiftId).find(m => m.id === id);
+      start = manual?.started_at || '—';
+      end   = manual?.ended_at   || '—';
+    }
+
     await ctx.replyWithHTML(
-      `⏱ Aktualny czas:\n▶️ Start: <b>${row?.started_at || '—'}</b>\n⏹ Koniec: <b>${row?.ended_at || '—'}</b>\n\nCo chcesz zmienić?`,
+      `⏱ Aktualny czas:\n▶️ Start: <b>${start}</b>\n⏹ Koniec: <b>${end}</b>\n\nCo chcesz zmienić?`,
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: '▶️ Zmień start',  callback_data: `rmp:settime:${shiftId}:${userId}:start` }],
-            [{ text: '⏹ Zmień koniec', callback_data: `rmp:settime:${shiftId}:${userId}:end`   }],
-            [{ text: '🗑 Wyczyść oba',  callback_data: `rmp:cleartime:${shiftId}:${userId}`      }],
-            [{ text: '⬅️ Wróć',         callback_data: `rmp:times:${shiftId}`                   }],
+            [{ text: '▶️ Zmień start',  callback_data: `rmp:settime:${kind}:${shiftId}:${id}:start` }],
+            [{ text: '⏹ Zmień koniec', callback_data: `rmp:settime:${kind}:${shiftId}:${id}:end`   }],
+            [{ text: '🗑 Wyczyść oba',  callback_data: `rmp:cleartime:${kind}:${shiftId}:${id}`      }],
+            [{ text: '⬅️ Wróć',         callback_data: `rmp:times:${shiftId}`                        }],
           ],
         },
       }
     );
   });
 
-  bot.action(/^rmp:cleartime:(\d+):(\d+)$/, async (ctx) => {
-    const shiftId = parseInt(ctx.match[1], 10);
-    const userId  = parseInt(ctx.match[2], 10);
-    setParticipantTime(shiftId, userId, 'started_at', null);
-    setParticipantTime(shiftId, userId, 'ended_at', null);
+  bot.action(/^rmp:cleartime:(tg|manual):(\d+):(\d+)$/, async (ctx) => {
+    const kind    = ctx.match[1];
+    const shiftId = parseInt(ctx.match[2], 10);
+    const id      = parseInt(ctx.match[3], 10);
+    if (kind === 'tg') {
+      setParticipantTime(shiftId, id, 'started_at', null);
+      setParticipantTime(shiftId, id, 'ended_at', null);
+    } else {
+      setManualParticipantTime(id, 'started_at', null);
+      setManualParticipantTime(id, 'ended_at', null);
+    }
     await ctx.answerCbQuery('✅ Wyczyszczono');
     await ctx.editMessageText('✅ Czas pracy wyczyszczony.', {
       reply_markup: { inline_keyboard: [[{ text: '⬅️ Wróć', callback_data: `rmp:times:${shiftId}` }]] },
     });
   });
 
-  bot.action(/^rmp:settime:(\d+):(\d+):(start|end)$/, async (ctx) => {
-    const shiftId = parseInt(ctx.match[1], 10);
-    const userId  = parseInt(ctx.match[2], 10);
-    const field   = ctx.match[3];
+  bot.action(/^rmp:settime:(tg|manual):(\d+):(\d+):(start|end)$/, async (ctx) => {
+    const kind    = ctx.match[1];
+    const shiftId = parseInt(ctx.match[2], 10);
+    const id      = parseInt(ctx.match[3], 10);
+    const field   = ctx.match[4];
     await ctx.answerCbQuery();
-    ctx.session.editTime = { shiftId, userId, field };
+    ctx.session.editTime = { kind, shiftId, id, field };
     const label = field === 'start' ? 'START' : 'KONIEC';
     await ctx.reply(`Podaj czas ${label} w formacie GG:MM (np. 12:30):\n\n/cancel — anuluj`);
   });
 
   bot.hears(/^\d{1,2}:\d{2}$/, async (ctx) => {
     if (!ctx.session?.editTime) return;
-    const { shiftId, userId, field } = ctx.session.editTime;
-    const raw = ctx.message.text.trim();
-    const parsed = raw.length === 4 ? `0${raw}` : raw;
+    const { kind, shiftId, id, field } = ctx.session.editTime;
+    const raw     = ctx.message.text.trim();
+    const parsed  = raw.length === 4 ? `0${raw}` : raw;
     const dbField = field === 'start' ? 'started_at' : 'ended_at';
-    setParticipantTime(shiftId, userId, dbField, parsed);
+    if (kind === 'tg') {
+      setParticipantTime(shiftId, id, dbField, parsed);
+    } else {
+      setManualParticipantTime(id, dbField, parsed);
+    }
     ctx.session.editTime = null;
     await ctx.reply(`✅ Czas ${field === 'start' ? 'START' : 'KONIEC'} ustawiony: <b>${parsed}</b>`, {
       parse_mode: 'HTML',
@@ -257,7 +291,7 @@ function registerParticipantCallbacks(bot) {
     }
   });
 
-  // Pick virtual user → add as manual participant
+  // Pick virtual user → add with full data + shift times
   bot.action(/^rmp:addvpick:(\d+):(\d+)$/, async (ctx) => {
     const shiftId = parseInt(ctx.match[1], 10);
     const vId     = parseInt(ctx.match[2], 10);
@@ -265,7 +299,14 @@ function registerParticipantCallbacks(bot) {
     const vuser = getVirtualUser(vId);
     if (!vuser) { await ctx.answerCbQuery('Nie znaleziono'); return; }
 
-    addManualParticipant(shiftId, vuser.reg_name, ctx.from.id);
+    const shift = getShift(shiftId);
+
+    addManualParticipant(shiftId, vuser.reg_name, ctx.from.id, {
+      phone:      vuser.reg_phone,
+      pesel:      vuser.reg_pesel,
+      started_at: shift?.start_time || null,
+      ended_at:   shift?.end_time   || null,
+    });
 
     const shift = getShift(shiftId);
     if (shift.chat_id && shift.message_id) {

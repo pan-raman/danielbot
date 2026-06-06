@@ -134,7 +134,13 @@ async function showShiftDetail(ctx, shiftId) {
     return `${num++}. ${name}${phone}${pesel}${start}${end}`;
   });
 
-  const manualLines = manualParticipants.map(m => `${num++}. ${m.name} <i>(offline)</i>`);
+  const manualLines = manualParticipants.map(m => {
+    const phone = m.phone ? ` | 📞 ${m.phone}` : '';
+    const pesel = m.pesel ? ` | 🪪 ${m.pesel}` : '';
+    const start = m.started_at ? ` | ▶️ ${m.started_at}` : ' | ▶️ —';
+    const end   = m.ended_at   ? ` | ⏹ ${m.ended_at}`   : ' | ⏹ —';
+    return `${num++}. ${m.name}${phone}${pesel}${start}${end}`;
+  });
 
   const allLines = [...tgLines, ...manualLines];
   const pList    = allLines.length ? allLines.join('\n') : '—';

@@ -284,11 +284,15 @@ function getShiftsStartingAt(targetDatetime) {
 
 // ── Manual participants ─────────────────────────────────────────────────────
 
-function addManualParticipant(shiftId, name, addedBy) {
+function addManualParticipant(shiftId, name, addedBy, extra = {}) {
   const result = getDb().prepare(
-    'INSERT INTO shift_manual_participants (shift_id, name, added_by) VALUES (?, ?, ?)'
-  ).run(shiftId, name, addedBy);
+    'INSERT INTO shift_manual_participants (shift_id, name, phone, pesel, started_at, ended_at, added_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(shiftId, name, extra.phone || null, extra.pesel || null, extra.started_at || null, extra.ended_at || null, addedBy);
   return result.lastInsertRowid;
+}
+
+function setManualParticipantTime(id, field, time) {
+  getDb().prepare(`UPDATE shift_manual_participants SET ${field} = ? WHERE id = ?`).run(time, id);
 }
 
 function removeManualParticipant(id) {
@@ -355,7 +359,7 @@ module.exports = {
   joinShift, approveParticipant, rejectParticipant, leaveShift,
   getParticipants, isParticipant, getParticipantStatus, getParticipantRow,
   markShiftStarted, markShiftEnded, markNotified, setParticipantTime,
-  addManualParticipant, removeManualParticipant, getManualParticipants, removeTgParticipant,
+  addManualParticipant, removeManualParticipant, getManualParticipants, removeTgParticipant, setManualParticipantTime,
   getShiftsStartingAt,
   getSetting, setSetting,
 };
