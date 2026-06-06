@@ -308,11 +308,6 @@ function registerParticipantCallbacks(bot) {
       ended_at:   shift?.end_time   || null,
     });
 
-    const shift = getShift(shiftId);
-    if (shift.chat_id && shift.message_id) {
-      try { await ctx.telegram.editMessageText(shift.chat_id, shift.message_id, undefined, shiftText(shift), { parse_mode: 'HTML', reply_markup: shiftKeyboard(shiftId) }); } catch {}
-    }
-
     await ctx.answerCbQuery(`✅ Dodano: ${vuser.reg_name}`);
     await showParticipantsManager(ctx, shiftId);
   });
