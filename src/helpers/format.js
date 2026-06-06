@@ -53,7 +53,7 @@ function shiftText(shift) {
     (spotsLeft > 0
       ? `✅ Wolne miejsca: ${spotsLeft}\n`
       : `🔴 Zmiana jest pełna\n`) +
-    `\n<b>Uczestnicy:</b>\n${participantLines}`
+    `\n<b>Uczestnicy (${filled}):</b>\n${participantLines}`
   );
 }
 

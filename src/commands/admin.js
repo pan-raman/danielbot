@@ -1,5 +1,5 @@
 const {
-  getAllShifts, getShift, deleteShift, getParticipants,
+  getAllShifts, getShift, deleteShift, getParticipants, getManualParticipants,
   setShiftMessage, getAllUsers, setBanned, setAdmin,
   getSetting, setSetting, getUser, setPriority, setRole, setStawka,
   getAllVirtualUsers, getVirtualUser, deleteVirtualUser,
@@ -120,20 +120,26 @@ async function showShiftDetail(ctx, shiftId) {
   const shift = getShift(shiftId);
   if (!shift) { await ctx.answerCbQuery('Zmiana nie znaleziona', { show_alert: true }); return; }
 
-  const participants = getParticipants(shiftId);
+  const tgParticipants     = getParticipants(shiftId);
+  const manualParticipants = getManualParticipants(shiftId);
+  const total              = tgParticipants.length + manualParticipants.length;
 
-  const pList = participants.length
-    ? participants.map((u, i) => {
-        const name  = u.snap_name  || u.reg_name  || userName(u);
-        const phone = u.snap_phone ? ` | 📞 ${u.snap_phone}` : '';
-        const pesel = u.snap_pesel ? ` | 🪪 ${u.snap_pesel}` : '';
-        const start = u.started_at ? ` | ▶️ ${u.started_at}` : ' | ▶️ —';
-        const end   = u.ended_at   ? ` | ⏹ ${u.ended_at}`   : ' | ⏹ —';
-        return `${i + 1}. ${name}${phone}${pesel}${start}${end}`;
-      }).join('\n')
-    : '—';
+  let num = 1;
+  const tgLines = tgParticipants.map(u => {
+    const name  = u.snap_name  || u.reg_name  || userName(u);
+    const phone = u.snap_phone ? ` | 📞 ${u.snap_phone}` : '';
+    const pesel = u.snap_pesel ? ` | 🪪 ${u.snap_pesel}` : '';
+    const start = u.started_at ? ` | ▶️ ${u.started_at}` : ' | ▶️ —';
+    const end   = u.ended_at   ? ` | ⏹ ${u.ended_at}`   : ' | ⏹ —';
+    return `${num++}. ${name}${phone}${pesel}${start}${end}`;
+  });
 
-  const text = shiftText(shift) + `\n\n<b>Uczestnicy (${participants.length}/${shift.required}):</b>\n${pList}`;
+  const manualLines = manualParticipants.map(m => `${num++}. ${m.name} <i>(offline)</i>`);
+
+  const allLines = [...tgLines, ...manualLines];
+  const pList    = allLines.length ? allLines.join('\n') : '—';
+
+  const text = shiftText(shift) + `\n\n<b>Uczestnicy (${total}/${shift.required}):</b>\n${pList}`;
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: shiftDetailKeyboard(shiftId) });
